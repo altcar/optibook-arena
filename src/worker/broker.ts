@@ -293,7 +293,10 @@ export class Broker {
     const order = this.orders.get(orderId);
     if (order) {
       order.filled += qty;
-      if (order.filled >= order.qty) order.status = 'filled';
+      if (order.filled >= order.qty) {
+        order.status = 'filled';
+        this.orders.delete(orderId);
+      }
     }
 
     this.market.recordTrade(instrument, price, qty);
@@ -413,24 +416,27 @@ export class Broker {
     const order = this.orders.get(orderId);
     if (!order || order.status !== 'open') return false;
     order.status = 'cancelled';
+    this.orders.delete(orderId);
     return true;
   }
 
   cancelAll(bookName?: string): number {
     let count = 0;
-    for (const order of this.orders.values()) {
+    for (const [id, order] of this.orders) {
       if (order.status !== 'open') continue;
       if (bookName && order.strategy !== bookName) continue;
       order.status = 'cancelled';
+      this.orders.delete(id);
       count++;
     }
     return count;
   }
 
   cancelInstrument(bookName: string, instrument: string): void {
-    for (const order of this.orders.values()) {
+    for (const [id, order] of this.orders) {
       if (order.status === 'open' && order.strategy === bookName && order.instrument === instrument) {
         order.status = 'cancelled';
+        this.orders.delete(id);
       }
     }
   }

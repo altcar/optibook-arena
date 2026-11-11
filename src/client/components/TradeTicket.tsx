@@ -45,8 +45,9 @@ export function TradeTicket({
 
   useEffect(() => {
     if (!instrument) return;
+    if (seed && seed.instrument === instrumentId) return;
     setPrice(fmtPrice(instrument.mid).replaceAll(',', ''));
-  }, [instrumentId]);
+  }, [instrumentId, seed?.nonce, seed?.instrument]);
 
   useEffect(() => {
     if (!seed) return;

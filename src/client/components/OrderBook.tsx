@@ -13,11 +13,25 @@ export function OrderBook({
 }) {
   const [tab, setTab] = useState<'stock' | 'dual'>('stock');
   const instrument = tab === 'stock' ? stock : dual;
-  const asks = instrument.book.asks.slice(0, 7).reverse();
-  const bids = instrument.book.bids.slice(0, 7);
+  let askCumulative = 0;
+  const asks = instrument.book.asks
+    .slice(0, 7)
+    .map((level) => {
+      askCumulative += level.size;
+      return { ...level, total: askCumulative };
+    })
+    .reverse();
+  let bidCumulative = 0;
+  const bids = instrument.book.bids.slice(0, 7).map((level) => {
+    bidCumulative += level.size;
+    return { ...level, total: bidCumulative };
+  });
   const maxSize = Math.max(1, ...asks.map((l) => l.size), ...bids.map((l) => l.size));
-  const spread = instrument.ask - instrument.bid;
-  const spreadBps = instrument.mid ? (spread / instrument.mid) * 10_000 : 0;
+  const bestBid = instrument.book.bids[0]?.price ?? instrument.bid;
+  const bestAsk = instrument.book.asks[0]?.price ?? instrument.ask;
+  const displayMid = (bestBid + bestAsk) / 2;
+  const spread = bestAsk - bestBid;
+  const spreadBps = displayMid ? (spread / displayMid) * 10_000 : 0;
 
   return (
     <section className="panel book-panel">
@@ -53,13 +67,13 @@ export function OrderBook({
             <span className="depth-bar" style={{ width: `${(level.size / maxSize) * 100}%` }} />
             <span className="book-price">{fmtPrice(level.price)}</span>
             <span className="book-size">{fmtQty(level.size)}</span>
-            <span className="book-total">{fmtQty(level.size)}</span>
+            <span className="book-total">{fmtQty(level.total)}</span>
             {level.own && <span className="own-dot" title="Your order" />}
           </button>
         ))}
 
         <div className="book-spread">
-          <span className="spread-price">{fmtPrice(instrument.mid)}</span>
+          <span className="spread-price">{fmtPrice(displayMid)}</span>
           <span className="spread-meta">
             spread {fmtPrice(spread)} · {spreadBps.toFixed(1)} bps
           </span>
@@ -75,7 +89,7 @@ export function OrderBook({
             <span className="depth-bar" style={{ width: `${(level.size / maxSize) * 100}%` }} />
             <span className="book-price">{fmtPrice(level.price)}</span>
             <span className="book-size">{fmtQty(level.size)}</span>
-            <span className="book-total">{fmtQty(level.size)}</span>
+            <span className="book-total">{fmtQty(level.total)}</span>
             {level.own && <span className="own-dot" title="Your order" />}
           </button>
         ))}
