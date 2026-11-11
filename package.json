@@ -1,0 +1,29 @@
+{
+  "name": "optibook-arena",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A live dual-market trading arena that rebuilds the HTB Optiver strategies on Cloudflare Workers.",
+  "scripts": {
+    "dev": "npm run build && wrangler dev",
+    "build": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.worker.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
+    "preview": "vite preview",
+    "deploy": "npm run build && wrangler deploy",
+    "smoke": "node scripts/smoke.mjs",
+    "cf:dev": "wrangler dev"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261110.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.2",
+    "wrangler": "^4.160.0"
+  }
+}
