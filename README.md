@@ -120,6 +120,16 @@ npm run deploy      # build + wrangler deploy
 
 ## Deploy to workers.dev
 
+`main` is connected to **Cloudflare Workers Builds**. Every push runs:
+
+```bash
+npm ci && npm run build
+npx wrangler deploy
+```
+
+The build uses Node 22, caches `node_modules`, and deploys with the Worker's Durable Object
+migration. You can also deploy manually from a checkout:
+
 ```bash
 npx wrangler login
 npm run deploy
