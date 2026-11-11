@@ -99,7 +99,7 @@ for comparison.
 
 ## Run locally
 
-Requirements: **Node.js 20+** (Node 22 LTS recommended).
+Requirements: **Node.js 22+** (LTS recommended).
 
 ```bash
 npm install

@@ -51,7 +51,17 @@ export function PositionsTable({
               {open.map((position) => {
                 const utilisation = Math.min(100, (Math.abs(position.qty) / positionLimit) * 100);
                 return (
-                  <tr key={position.instrument} onClick={() => onSelectInstrument(position.instrument)} tabIndex={0}>
+                  <tr
+                    key={position.instrument}
+                    onClick={() => onSelectInstrument(position.instrument)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onSelectInstrument(position.instrument);
+                      }
+                    }}
+                    tabIndex={0}
+                  >
                     <td>
                       <div className="cell-book">
                         <span className={`side-marker ${position.qty >= 0 ? 'long' : 'short'}`} />

@@ -47,7 +47,7 @@ export function StatsStrip({ stats, equity, startingCash }: { stats: Stats; equi
     <section className="stats-strip" aria-label="Arena statistics">
       <StatCard
         label="Account equity"
-        value={fmtMoney(stats.equity).replace('$', '$')}
+        value={fmtMoney(stats.equity)}
         sub={`Started at ${fmtMoney(startingCash)} · ${fmtPct(pnlPct, { signed: true })}`}
         icon="shield"
         accent="#38bdf8"

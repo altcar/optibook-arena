@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "description": "A live dual-market trading arena that rebuilds the HTB Optiver strategies on Cloudflare Workers.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "npm run build && wrangler dev",
     "build": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.worker.json --noEmit && vite build",
