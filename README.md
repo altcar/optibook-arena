@@ -90,6 +90,11 @@ strategy engines executing server-side inside a Durable Object.
 Every card exposes its live P&L, fill count, net quantity, gross exposure, and numeric parameters.
 Changes apply on the next engine tick.
 
+The original repository contains several near-duplicate controllers and experimental variants
+(`controllerEdge`, `controllerFixReconnect`, `good1`, `mm`, `mm_ilegal`, and so on). The six engines
+above consolidate the distinct approaches; the archived variants remain under [`legacy/`](legacy/README.md)
+for comparison.
+
 ---
 
 ## Run locally
@@ -122,6 +127,9 @@ npm run deploy
 
 The Worker name is `optibook-arena`. Wrangler prints the resulting
 `https://optibook-arena.<your-subdomain>.workers.dev` URL.
+
+The public demo is intentionally unauthenticated: anyone with the URL can trade, toggle strategies,
+publish news, or reset the arena. Treat it as a shared sandbox, not a production trading system.
 
 The Durable Object uses the SQLite storage backend (`new_sqlite_classes`), which is available on the
 Workers free plan. No KV, R2, D1, or external API keys are required.
