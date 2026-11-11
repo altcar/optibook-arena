@@ -163,6 +163,17 @@ The client reconnects with exponential backoff and reports round-trip latency in
 
 ---
 
+## Porting notes
+
+- The original `optibook.synchronous_client` connector and its LZ4/MessagePack WebSocket feed no
+  longer exist, so the Worker owns a synthetic venue and speaks JSON over WebSocket instead.
+- `arbStrat2sentiment` loaded a DistilBERT/PyTorch model. Workers cannot load those weights, so the
+  running sentiment engine uses a deterministic finance lexicon; the original model files remain in
+  the archived source for reference.
+- Exchange calls such as `get_positions`, `get_pnl`, `get_last_price_book`, and `get_outstanding_orders`
+  are replaced by the broker's book-keeping and merged order book.
+- Duplicate controllers are consolidated into six configurable engines rather than copied one-to-one.
+
 ## Repository layout
 
 ```
