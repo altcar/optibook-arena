@@ -1,6 +1,7 @@
 * text=auto
 
 # The original Python strategies are archived for reference, not part of the app.
+*.py linguist-vendored
 legacy/** linguist-vendored
 legacy/** linguist-documentation
 
