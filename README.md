@@ -38,6 +38,11 @@ strategy engines executing server-side inside a Durable Object.
 
 ![Optibook Arena terminal](docs/terminal.png)
 
+## Documentation
+
+- [Features, implementation, and real-market limitations](FEATURES.md) — what the app does, how each
+  part works, and why the same information or execution is impossible in a real market.
+
 ---
 
 ## Architecture
