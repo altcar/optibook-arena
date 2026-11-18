@@ -392,7 +392,7 @@ otherwise rebuild the chart from the live session.
 
 **What it does:** clears positions, orders, cash, news, and strategies, and starts a new session.
 
-**How:** `POST /api/reset` → `ArenaEngine.reset()`.
+**How:** `POST /api/account/reset` → cancels the viewer's orders and removes the viewer's books. The market itself is never reset.
 
 **Real-market gap:** there is no reset in a real market. Losses, positions, and obligations persist.
 A real system needs a controlled cancel/kill process, not a reset button.
@@ -598,9 +598,9 @@ archived DistilBERT model is not runnable on Workers without a different inferen
 
 ### 8.1 Layout
 
-The React terminal (`src/client/App.tsx`) contains:
+The React terminal (`src/client/pages/DashboardPage.tsx`) contains:
 
-- top bar with connection state, latency, tick count, uptime, UTC clock, speed, reset;
+- top bar with connection state, latency, tick count, uptime, UTC clock, speed, account reset;
 - stat strip: equity, net P&L, gross exposure, arbitrage count, engine tick time;
 - watchlist of five pairs;
 - instrument header with last, change, bid/ask, dual mid, position, range, and sentiment;
@@ -697,17 +697,22 @@ latency indicators.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/health` | Health, tick, equity, sockets, enabled strategies |
-| `GET` | `/api/state` | Full snapshot |
-| `POST` | `/api/order` | Manual market/limit order |
-| `POST` | `/api/cancel` | Cancel one manual order or all manual orders |
-| `POST` | `/api/strategy` | Toggle or tune a strategy |
-| `POST` | `/api/news` | Publish a manual headline |
+| `GET` | `/api/state` | Personalised snapshot |
+| `POST` | `/api/auth/register` · `/login` · `/logout` | Account lifecycle |
+| `GET` | `/api/auth/me` | Current user and account |
+| `POST` | `/api/order` | Manual market/limit order (auth) |
+| `POST` | `/api/cancel` | Cancel one or all manual orders (auth) |
+| `POST` | `/api/strategy` | Toggle or tune a strategy for the viewer (auth) |
+| `POST` | `/api/news` | Publish a manual headline (auth) |
 | `POST` | `/api/config` | Speed / volatility |
-| `POST` | `/api/reset` | Reset the arena |
+| `POST` | `/api/account/reset` | Flatten the viewer's paper account (auth) |
+| `GET`/`POST` | `/api/bots`, `/api/bots/validate`, `/api/bots/:id/status` | Bot lifecycle (auth) |
+| `GET` | `/api/platform`, `/api/leaderboard`, `/api/seasons`, `/api/season/:id`, `/api/tournaments`, `/api/forum`, `/api/newsletter` | Public platform data |
+| `POST` | `/api/tournaments/:id/register`, `/api/forum`, `/api/forum/:id/reply`, `/api/newsletter` | Platform actions |
 
-**Real-market gap:** real APIs require authentication, authorization, entitlements, rate limits,
-idempotency, audit logs, and reconciliation. Our API is unauthenticated by design so the public demo
-is usable.
+**Real-market gap:** real APIs require stronger authorization, entitlements, rate limits,
+idempotency, audit logs, and reconciliation. Our mutating endpoints require a session cookie and scope
+data by account, but the security boundary is still application-level rather than custodial.
 
 ### 9.2 WebSocket messages
 
