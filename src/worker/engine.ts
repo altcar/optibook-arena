@@ -810,6 +810,8 @@ export class ArenaEngine extends DurableObject<Env> {
         if (!user) continue;
         if (division && user.division !== division) continue;
         const info = this.botInfo(bot, viewerId);
+        // Match the published rule: a bot must have traded to be ranked.
+        if (info.fills < 1) continue;
         const rounds = bot.rounds ?? [];
         const wins = rounds.filter((round) => round.win).length;
         entries.push({

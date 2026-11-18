@@ -12,12 +12,21 @@ interface Template {
   spec: BotSpec;
 }
 
+const DEFAULT_SPEC: BotSpec = {
+  name: 'Basis Hunter',
+  description: 'Buys the cheap leg and sells the rich leg when the stock/dual basis clears 8 bps.',
+  family: 'dual-arb',
+  params: { edgeBps: 8, qty: 5 },
+  risk: { maxPosition: 40, maxGross: 60000, maxOrdersPerMin: 20 },
+  universe: ['NVDA', 'PFE'],
+};
+
 export default function BotsPage() {
   const [bots, setBots] = useState<BotInfo[] | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [limit, setLimit] = useState(2);
   const [selected, setSelected] = useState(0);
-  const [editor, setEditor] = useState('');
+  const [editor, setEditor] = useState(() => JSON.stringify(DEFAULT_SPEC, null, 2));
   const [validation, setValidation] = useState<BotValidation | null>(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -37,9 +46,6 @@ export default function BotsPage() {
         setBots(botData.bots);
         setLimit(botData.limit);
         setTemplates(templateData.templates);
-        if (templateData.templates.length) {
-          setEditor((previous) => previous || JSON.stringify(templateData.templates[0].spec, null, 2));
-        }
       })
       .catch((reason) => setError(errorMessage(reason)));
 

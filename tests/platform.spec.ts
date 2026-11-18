@@ -99,7 +99,17 @@ test.describe('account and trading', () => {
       page.getByRole('button', { name: /Buy 10 NVDA/i }).click(),
     ]);
     expect(orderResponse.ok()).toBeTruthy();
-    await expect(page.locator('.positions-panel')).toContainText('NVDA', { timeout: 20_000 });
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get('/api/state');
+          const data = (await response.json()) as { positions: { instrument: string }[] };
+          return data.positions.some((position) => position.instrument === 'NVDA');
+        },
+        { timeout: 20_000 },
+      )
+      .toBe(true);
+    await expect(page.locator('.positions-panel')).toContainText('NVDA', { timeout: 30_000 });
     await expect(page.locator('.positions-panel')).toContainText('manual');
 
     const account = await page.locator('.account-metrics').innerText();
@@ -196,16 +206,42 @@ test.describe('bot console', () => {
     await expect(page.getByTestId('bot-card').first()).toContainText('Custom Rules');
   });
 
-  test('viewer bot appears on the leaderboard', async ({ page }) => {
+  test('viewer bot appears on the leaderboard after it trades', async ({ page }) => {
     const username = await register(page, 'board');
     await page.goto('/bots');
+    const spec = {
+      name: `Always On ${stamp()}`,
+      description: 'A deterministic test bot that trades every cooldown.',
+      family: 'custom',
+      universe: ['NVDA'],
+      params: { qty: 1 },
+      risk: { maxPosition: 20, maxGross: 20_000, maxOrdersPerMin: 30 },
+      rules: [
+        {
+          when: [{ field: 'spreadBps', op: 'gt', value: -1, instrument: 'NVDA' }],
+          action: { type: 'order', instrument: 'NVDA', side: 'buy', qty: 1, orderType: 'market' },
+          cooldownMs: 500,
+        },
+      ],
+    };
+    await page.getByTestId('bot-editor').fill(JSON.stringify(spec, null, 2));
     await page.getByTestId('deploy-bot').click();
     await expect(page.locator('.form-success')).toContainText('is live');
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get('/api/bots');
+          const data = (await response.json()) as { bots: { fills: number }[] };
+          return data.bots[0]?.fills ?? 0;
+        },
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThan(0);
     await page.goto('/leaderboard');
     const row = page.locator('tr.is-viewer');
     await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(row).toContainText(username);
-    await expect(row).toContainText('Basis Hunter');
+    await expect(row).toContainText('Always On');
   });
 });
 
