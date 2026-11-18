@@ -31,6 +31,17 @@ It contains:
 - **persistence** of positions, cash, orders, news, and strategy state;
 - **push-triggered Cloudflare Workers Builds** deployment.
 
+The platform layer adds:
+
+- **accounts and sessions** — register/login, PBKDF2 hashes, HttpOnly cookies, isolated accounts;
+- **per-user paper portfolios** — manual, strategy and bot books namespaced under `u:<userId>`;
+- **a bot console** — deploy, validate, pause/resume and delete bots;
+- **six runnable families plus a custom JSON rule DSL** — no arbitrary code execution;
+- **leaderboard** — Open/Raised divisions, season filter, win rate, Sharpe, trend;
+- **seasons and tournaments** — rule sets, prize pools, registration;
+- **forum, newsletter, rules and pricing** — community and business surfaces;
+- **Playwright end-to-end tests** covering every feature above.
+
 The central caveat is simple: the app owns the venue **and** the trading desk. That gives it a
 complete view of every synthetic order and print. No real market participant has that view, and a
 real venue operator that traded on it would be in serious legal and ethical territory.
@@ -64,8 +75,48 @@ real venue operator that traded on it would be in serious legal and ethical terr
 | 21 | Responsive terminal UI | `src/client/styles.css`, components | Presentation layer; no real-market equivalent |
 | 22 | Legacy strategy archive | `legacy/` | Reference only; not executed |
 | 23 | CI + Workers Builds | `.github/workflows/ci.yml`, Cloudflare Workers Builds | Good deployment hygiene; not HFT infrastructure |
-| 24 | Reset button | `POST /api/reset` | Markets cannot be reset |
+| 24 | Reset button | `POST /api/account/reset` | Markets cannot be reset; accounts can be re-based, with audit |
 | 25 | Speed control | `POST /api/config` | Time cannot be sped up in a real market |
+| 26 | Register / login / logout | `src/worker/auth.ts`, `/api/auth/*` | Real brokers require KYC, MFA, suitability and jurisdictional checks |
+| 27 | Isolated paper accounts | `ownerOf()` in `broker.ts`; `u:<userId>` books | Real accounts are segregated at the broker/custodian, not in app logic |
+| 28 | Bot upload validation | `validateBotSpec()` in `bots.ts` | Real deployment needs code review, sandboxing, entitlements and kill switches |
+| 29 | Custom rule interpreter | `runBot()` custom branch | Real strategies run as code/services with deterministic replay and audit |
+| 30 | Bot round scoring | `processRounds()`, `ROUND_TICKS = 600` | Real performance periods are calendar/fee/benchmark defined |
+| 31 | Leaderboard + divisions | `leaderboard()` in `engine.ts` | Real rankings need verified returns, survivorship and fee-adjusted data |
+| 32 | Seasons | `SEASONS` in `platform.ts` | Real competitions have legal terms, eligibility and prize regulation |
+| 33 | Tournaments | `TOURNAMENTS`, registration API | Real events need formal rules, judges and settlement |
+| 34 | Forum | `platform.threads`, `/api/forum` | Real community moderation needs policy, escalation and legal process |
+| 35 | Newsletter | `/api/newsletter`, `NEWSLETTER_ISSUES` | Real marketing needs consent, unsubscribe and privacy compliance |
+| 36 | Rules / pricing pages + docs | `RULES.md`, `BOT_UPLOAD.md`, `BUSINESS_PLAN.md` | Real terms require counsel and jurisdiction-specific review |
+
+### 2.1 Competition platform implementation
+
+**What it does:** turns the single-desk terminal into a multi-user competition with accounts, bot
+uploads, scoring, seasons, tournaments, community and a commercial surface.
+
+**How:**
+
+- `ArenaEngine` holds a `PlatformState` (users, sessions, bots, threads, newsletter, tournament
+  registrations, equity curves) alongside the market/broker state and persists both to Durable
+  Object storage.
+- Every book is namespaced. `ownerOf()` maps `u:<userId>:...` to an account owner; the broker scopes
+  positions, open orders, projected quantity and position caps by owner. House strategies use
+  `h:<id>`.
+- `buildSnapshot()` and `tickMessageFor()` personalise positions, orders, strategies, bots, equity
+  and account summary per WebSocket session. Other participants' books are never included.
+- Bots are stored as validated JSON specs. `runBot()` interprets family templates or a custom
+  trigger/action DSL, with per-bot position, gross-exposure and order-rate guards.
+- Scoring rounds run every 600 ticks. `processRounds()` records cumulative bot P&L and whether the
+  round delta was positive; win rate and Sharpe are derived from that series.
+- Seasons, tournaments, seeded benchmark bots, forum threads and newsletter issues are seeded in
+  `platform.ts` so the public site is populated before real users arrive.
+- The client is a small history router with public pages, auth-gated dashboard/bot console and a
+  shared design system layered over the original terminal CSS.
+
+**Real-market status:** the isolation is application-level, not custodial. Real multi-tenant trading
+requires segregated accounts, regulatory permissions, KYC/AML, order audit trails, entitlements,
+surveillance and a much stronger security boundary. The declarative bot model is a deliberate safety
+choice; real code execution needs a hardened sandbox and review process.
 
 ---
 
@@ -993,13 +1044,19 @@ the point.
 | Engine / Durable Object | `src/worker/engine.ts` |
 | Market simulation | `src/worker/market.ts` |
 | Matching / positions / P&L | `src/worker/broker.ts` |
-| Strategies | `src/worker/strategies.ts` |
+| Strategy families | `src/worker/strategies.ts` |
+| Bot validation / interpreter | `src/worker/bots.ts` |
+| Accounts, sessions, hashing | `src/worker/auth.ts` |
+| Platform records and seeds | `src/worker/platform.ts` |
 | News / sentiment | `src/worker/news.ts` |
 | Random and tick helpers | `src/worker/rng.ts` |
+| Client router / auth / API | `src/client/App.tsx`, `router.tsx`, `auth.tsx`, `api.ts` |
 | Client state / WebSocket | `src/client/useArena.ts` |
-| Terminal composition | `src/client/App.tsx` |
+| Public pages | `src/client/pages/` |
 | Terminal components | `src/client/components/` |
-| Design system | `src/client/styles.css` |
+| Design system | `src/client/styles.css`, `platform.css` |
+| End-to-end tests | `tests/platform.spec.ts`, `playwright.config.ts` |
+| Rules / upload / business docs | `RULES.md`, `BOT_UPLOAD.md`, `BUSINESS_PLAN.md` |
 | Worker config | `wrangler.jsonc` |
 | Smoke test | `scripts/smoke.mjs` |
 | CI | `.github/workflows/ci.yml` |

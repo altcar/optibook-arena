@@ -3,6 +3,8 @@ import type {
   ArenaConfig,
   ArenaSnapshot,
   ArenaTick,
+  AccountSummary,
+  BotInfo,
   NewsItem,
   OrderRequest,
   ServerMessage,
@@ -50,6 +52,9 @@ function mergeTick(prev: ArenaSnapshot, tick: ArenaTick): ArenaSnapshot {
     strategies: tick.strategies,
     stats: tick.stats,
     equity,
+    account: tick.account ?? prev.account,
+    bots: tick.bots ?? prev.bots,
+    viewer: tick.viewer ?? prev.viewer,
   };
 }
 
@@ -173,6 +178,12 @@ export function useArena() {
     return data;
   }, []);
 
+  const refresh = useCallback(async () => {
+    const fresh = await request<ArenaSnapshot>('/api/state').catch(() => null);
+    if (fresh) setState(fresh);
+    return fresh;
+  }, [request]);
+
   const placeOrder = useCallback(
     async (input: OrderRequest) => {
       try {
@@ -280,8 +291,10 @@ export function useArena() {
 
   const reset = useCallback(async () => {
     try {
-      await request('/api/reset', {});
-      toast('Arena reset · fresh session', 'info');
+      await request('/api/account/reset', {});
+      toast('Paper account reset · fresh session', 'info');
+      const fresh = await request<ArenaSnapshot>('/api/state').catch(() => null);
+      if (fresh) setState(fresh);
     } catch (error) {
       toast(readErrorMessage(error), 'error');
     }
@@ -294,7 +307,7 @@ export function useArena() {
     toasts,
     toast,
     dismissToast,
-    actions: { placeOrder, cancelOrder, cancelAll, setStrategy, saveStrategyConfig, setConfig, publishNews, reset },
+    actions: { placeOrder, cancelOrder, cancelAll, setStrategy, saveStrategyConfig, setConfig, publishNews, reset, refresh },
   };
 }
 

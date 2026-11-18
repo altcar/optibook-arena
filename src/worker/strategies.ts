@@ -1,6 +1,20 @@
 import { STOCK_PAIRS, STRATEGY_META, type Side } from '../shared/types';
 import { clamp, roundToTick } from './rng';
-import type { ArenaEngine } from './engine';
+
+export interface StrategyContext {
+  now: number;
+  limit: number;
+  memo: Map<string, number>;
+  sim(id: string): { id: string; mid: number; tick: number; book: { bids: { price: number; size: number }[]; asks: { price: number; size: number }[] } } | undefined;
+  history(id: string): number[];
+  position(id: string): number;
+  room(id: string, side: Side): number;
+  cfg(key: string): number;
+  sentimentFor(symbol: string): number;
+  quote(instrument: string, bid: number, ask: number, qty: number): void;
+  take(instrument: string, side: Side, qty: number, edgeTicks?: number): { ok: boolean };
+  recordArb(): void;
+}
 
 export interface StrategyDef {
   id: string;
@@ -10,7 +24,7 @@ export interface StrategyDef {
   origin: string;
   color: string;
   defaults: Record<string, number>;
-  onTick(engine: ArenaEngine): void;
+  onTick(ctx: StrategyContext): void;
 }
 
 const meta = (id: string) => {
@@ -18,8 +32,6 @@ const meta = (id: string) => {
   if (!found) throw new Error(`Unknown strategy meta: ${id}`);
   return found;
 };
-
-const LIMIT = 100;
 
 /**
  * Port of the dual-priced market maker (arbStrat1 / arbStrat2 / final_solution).
@@ -29,19 +41,19 @@ const dualMaker: StrategyDef = {
   ...meta('dual-mm'),
   defaults: { spread: 0.14, qty: 20 },
   onTick(e) {
-    const spread = e.cfg('dual-mm', 'spread');
-    const qty = e.cfg('dual-mm', 'qty');
+    const spread = e.cfg('spread');
+    const qty = e.cfg('qty');
     for (const pair of STOCK_PAIRS) {
       const stock = e.sim(pair.stock);
       const dual = e.sim(pair.dual);
       if (!stock || !dual) continue;
       const pos = e.position(pair.stock);
       const fair = stock.mid * 0.5 + dual.mid * 0.5;
-      const skew = -(clamp(pos / LIMIT, -1, 1) * spread * 0.9);
+      const skew = -(clamp(pos / e.limit, -1, 1) * spread * 0.9);
       const bid = roundToTick(fair + skew - spread / 2, stock.tick, 'down');
       const ask = roundToTick(fair + skew + spread / 2, stock.tick, 'up');
       if (ask - bid < stock.tick * 2) continue;
-      e.quote('dual-mm', pair.stock, bid, ask, qty);
+      e.quote(pair.stock, bid, ask, qty);
     }
   },
 };
@@ -54,15 +66,15 @@ const pairHedger: StrategyDef = {
   ...meta('hedge'),
   defaults: { threshold: 30, qty: 40 },
   onTick(e) {
-    const threshold = e.cfg('hedge', 'threshold');
-    const maxQty = e.cfg('hedge', 'qty');
+    const threshold = e.cfg('threshold');
+    const maxQty = e.cfg('qty');
     for (const pair of STOCK_PAIRS) {
       const net = e.position(pair.stock) + e.position(pair.dual);
       if (Math.abs(net) < threshold) continue;
       if (e.now - (e.memo.get(`hedge:${pair.symbol}`) ?? 0) < 900) continue;
       const side: Side = net > 0 ? 'sell' : 'buy';
       const qty = Math.min(Math.abs(net), maxQty);
-      const result = e.take('hedge', pair.dual, side, qty);
+      const result = e.take(pair.dual, side, qty);
       if (result.ok) e.memo.set(`hedge:${pair.symbol}`, e.now);
     }
   },
@@ -75,8 +87,8 @@ const dualArbitrage: StrategyDef = {
   ...meta('dual-arb'),
   defaults: { edge: 0.05, qty: 10 },
   onTick(e) {
-    const edge = e.cfg('dual-arb', 'edge');
-    const size = e.cfg('dual-arb', 'qty');
+    const edge = e.cfg('edge');
+    const size = e.cfg('qty');
     for (const pair of STOCK_PAIRS) {
       const stock = e.sim(pair.stock);
       const dual = e.sim(pair.dual);
@@ -100,8 +112,8 @@ const dualArbitrage: StrategyDef = {
       if (!first || !second) continue;
       if (e.room(first.id, first.side) < 1 || e.room(second.id, second.side) < 1) continue;
 
-      const a = e.take('dual-arb', first.id, first.side, size);
-      const b = e.take('dual-arb', second.id, second.side, size);
+      const a = e.take(first.id, first.side, size);
+      const b = e.take(second.id, second.side, size);
       if (a.ok && b.ok) {
         e.recordArb();
         e.memo.set(`arb:${pair.symbol}`, e.now);
@@ -118,10 +130,10 @@ const sentimentMaker: StrategyDef = {
   ...meta('sentiment-mm'),
   defaults: { spread: 0.16, qty: 15, sensitivity: 1, takeThreshold: 0.4 },
   onTick(e) {
-    const baseSpread = e.cfg('sentiment-mm', 'spread');
-    const qty = e.cfg('sentiment-mm', 'qty');
-    const sensitivity = e.cfg('sentiment-mm', 'sensitivity');
-    const takeThreshold = e.cfg('sentiment-mm', 'takeThreshold');
+    const baseSpread = e.cfg('spread');
+    const qty = e.cfg('qty');
+    const sensitivity = e.cfg('sensitivity');
+    const takeThreshold = e.cfg('takeThreshold');
     for (const pair of STOCK_PAIRS) {
       const stock = e.sim(pair.stock);
       if (!stock) continue;
@@ -129,15 +141,15 @@ const sentimentMaker: StrategyDef = {
       const pos = e.position(pair.stock);
       const spread = baseSpread * (1 + Math.abs(score) * 0.7);
       const fair = stock.mid + stock.mid * score * 0.0016 * sensitivity;
-      const skew = -(clamp(pos / LIMIT, -1, 1) * spread * 0.8);
+      const skew = -(clamp(pos / e.limit, -1, 1) * spread * 0.8);
       const bid = roundToTick(fair + skew - spread / 2, stock.tick, 'down');
       const ask = roundToTick(fair + skew + spread / 2, stock.tick, 'up');
-      if (ask - bid >= stock.tick * 2) e.quote('sentiment-mm', pair.stock, bid, ask, qty);
+      if (ask - bid >= stock.tick * 2) e.quote(pair.stock, bid, ask, qty);
 
-      if (Math.abs(score) >= takeThreshold && Math.abs(pos) < 55) {
+      if (Math.abs(score) >= takeThreshold && Math.abs(pos) < e.limit * 0.55) {
         if (e.now - (e.memo.get(`sent:${pair.symbol}`) ?? 0) > 2600) {
           const side: Side = score > 0 ? 'buy' : 'sell';
-          const result = e.take('sentiment-mm', pair.stock, side, Math.min(12, qty));
+          const result = e.take(pair.stock, side, Math.min(12, qty));
           if (result.ok) e.memo.set(`sent:${pair.symbol}`, e.now);
         }
       }
@@ -153,10 +165,10 @@ const momentumMaker: StrategyDef = {
   ...meta('momentum-mm'),
   defaults: { spread: 0.15, qty: 15, horizon: 6, bias: 0.5 },
   onTick(e) {
-    const baseSpread = e.cfg('momentum-mm', 'spread');
-    const baseQty = e.cfg('momentum-mm', 'qty');
-    const horizon = Math.max(2, Math.round(e.cfg('momentum-mm', 'horizon')));
-    const bias = e.cfg('momentum-mm', 'bias');
+    const baseSpread = e.cfg('spread');
+    const baseQty = e.cfg('qty');
+    const horizon = Math.max(2, Math.round(e.cfg('horizon')));
+    const bias = e.cfg('bias');
     for (const pair of STOCK_PAIRS) {
       const stock = e.sim(pair.stock);
       if (!stock) continue;
@@ -172,12 +184,12 @@ const momentumMaker: StrategyDef = {
       const pos = e.position(pair.stock);
       const fair = stock.mid + stock.mid * momentum * bias;
       const spread = baseSpread * (1 + clamp(vol * 260, 0, 1.6));
-      const skew = -(clamp(pos / LIMIT, -1, 1) * spread * 0.85);
+      const skew = -(clamp(pos / e.limit, -1, 1) * spread * 0.85);
       const bid = roundToTick(fair + skew - spread / 2, stock.tick, 'down');
       const ask = roundToTick(fair + skew + spread / 2, stock.tick, 'up');
-      const riskScale = clamp(1 - Math.abs(pos) / LIMIT, 0.1, 1);
+      const riskScale = clamp(1 - Math.abs(pos) / e.limit, 0.1, 1);
       const qty = Math.max(1, Math.round(baseQty * riskScale));
-      if (ask - bid >= stock.tick * 2) e.quote('momentum-mm', pair.stock, bid, ask, qty);
+      if (ask - bid >= stock.tick * 2) e.quote(pair.stock, bid, ask, qty);
     }
   },
 };
@@ -190,24 +202,24 @@ const adaptiveMaker: StrategyDef = {
   ...meta('adaptive-mm'),
   defaults: { baseSpread: 0.07, qty: 20, hedgeThreshold: 70 },
   onTick(e) {
-    const minSpread = e.cfg('adaptive-mm', 'baseSpread');
-    const qty = e.cfg('adaptive-mm', 'qty');
-    const hedgeThreshold = e.cfg('adaptive-mm', 'hedgeThreshold');
+    const minSpread = e.cfg('baseSpread');
+    const qty = e.cfg('qty');
+    const hedgeThreshold = e.cfg('hedgeThreshold');
     for (const pair of STOCK_PAIRS) {
       const stock = e.sim(pair.stock);
       if (!stock) continue;
       const pos = e.position(pair.stock);
       const marketSpread = Math.max(stock.tick, stock.book.asks[0].price - stock.book.bids[0].price);
       const base = Math.max(minSpread, marketSpread * 0.55);
-      const skew = Math.tanh(pos / LIMIT) * 0.3;
+      const skew = Math.tanh(pos / e.limit) * 0.3;
       const bid = roundToTick(stock.mid - base * (0.5 + skew), stock.tick, 'down');
       const ask = roundToTick(stock.mid + base * (0.5 - skew), stock.tick, 'up');
-      if (ask - bid >= stock.tick * 2) e.quote('adaptive-mm', pair.stock, bid, ask, qty);
+      if (ask - bid >= stock.tick * 2) e.quote(pair.stock, bid, ask, qty);
 
-      if (Math.abs(pos) >= hedgeThreshold && Math.abs(pos) < LIMIT) {
+      if (Math.abs(pos) >= hedgeThreshold && Math.abs(pos) < e.limit) {
         if (e.now - (e.memo.get(`adapt:${pair.symbol}`) ?? 0) > 1400) {
           const side: Side = pos > 0 ? 'sell' : 'buy';
-          const result = e.take('adaptive-mm', pair.dual, side, Math.min(25, Math.abs(pos) - hedgeThreshold + 10));
+          const result = e.take(pair.dual, side, Math.min(25, Math.abs(pos) - hedgeThreshold + 10));
           if (result.ok) e.memo.set(`adapt:${pair.symbol}`, e.now);
         }
       }

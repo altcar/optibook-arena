@@ -1,7 +1,7 @@
-import { ArenaEngine } from './engine';
+import { ArenaEngine, ArenaEngineV2 } from './engine';
 import type { Env } from './env';
 
-export { ArenaEngine };
+export { ArenaEngine, ArenaEngineV2 };
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

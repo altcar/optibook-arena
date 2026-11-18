@@ -55,6 +55,13 @@ export interface PersistedBroker {
 
 const EMPTY_BOOK = (): Book => ({ bids: [], asks: [] });
 
+/** Books are namespaced: `u:<userId>:...` belongs to an account, everything else is the house book. */
+export function ownerOf(book: string): string {
+  if (!book.startsWith('u:')) return 'house';
+  const parts = book.split(':');
+  return parts.length > 1 ? `u:${parts[1]}` : 'house';
+}
+
 export class Broker {
   private books = new Map<string, BookState>();
   private orders = new Map<string, InternalOrder>();
@@ -103,9 +110,12 @@ export class Broker {
     return pos;
   }
 
-  aggregateQty(instrument: string): number {
+  aggregateQty(instrument: string, owner = 'house'): number {
     let qty = 0;
-    for (const state of this.books.values()) qty += state.positions.get(instrument)?.qty ?? 0;
+    for (const [name, state] of this.books) {
+      if (ownerOf(name) !== owner) continue;
+      qty += state.positions.get(instrument)?.qty ?? 0;
+    }
     return qty;
   }
 
@@ -113,8 +123,10 @@ export class Broker {
     return this.books.get(bookName)?.positions.get(instrument)?.qty ?? 0;
   }
 
-  openOrders(): InternalOrder[] {
-    return [...this.orders.values()].filter((o) => o.status === 'open').sort((a, b) => b.ts - a.ts);
+  openOrders(owner?: string): InternalOrder[] {
+    return [...this.orders.values()]
+      .filter((o) => o.status === 'open' && (owner === undefined || ownerOf(o.strategy) === owner))
+      .sort((a, b) => b.ts - a.ts);
   }
 
   openOrdersFor(bookName: string, instrument?: string): InternalOrder[] {
@@ -127,40 +139,42 @@ export class Broker {
     return this.openOrders().filter((o) => o.instrument === instrument);
   }
 
-  private projectedQty(instrument: string): number {
-    let projected = this.aggregateQty(instrument);
+  private projectedQty(instrument: string, owner = 'house'): number {
+    let projected = this.aggregateQty(instrument, owner);
     for (const order of this.orders.values()) {
       if (order.status !== 'open' || order.instrument !== instrument) continue;
+      if (ownerOf(order.strategy) !== owner) continue;
       const remaining = order.qty - order.filled;
       projected += order.side === 'buy' ? remaining : -remaining;
     }
     return projected;
   }
 
-  roomFor(instrument: string, side: Side): number {
-    const projected = this.projectedQty(instrument);
+  roomFor(instrument: string, side: Side, owner = 'house'): number {
+    const projected = this.projectedQty(instrument, owner);
     return Math.max(0, side === 'buy' ? this.positionLimit - projected : this.positionLimit + projected);
   }
 
   /** Room for converting an already-open order into a fill (its own size is not re-counted). */
-  private fillRoom(instrument: string, side: Side): number {
-    const qty = this.aggregateQty(instrument);
+  private fillRoom(instrument: string, side: Side, owner = 'house'): number {
+    const qty = this.aggregateQty(instrument, owner);
     return Math.max(0, side === 'buy' ? this.positionLimit - qty : this.positionLimit + qty);
   }
 
   place(input: PlaceInput): PlaceResult {
+    const owner = ownerOf(input.book);
     const inst = this.market.get(input.instrument);
     if (!inst) return { ok: false, error: 'Unknown instrument' };
     const qty = Math.floor(input.qty);
     if (!Number.isFinite(qty) || qty <= 0) return { ok: false, error: 'Quantity must be a positive whole number' };
     if (input.side !== 'buy' && input.side !== 'sell') return { ok: false, error: 'Invalid side' };
-    if (this.roomFor(input.instrument, input.side) <= 0) return { ok: false, error: 'Position limit reached for this instrument' };
+    if (this.roomFor(input.instrument, input.side, owner) <= 0) return { ok: false, error: 'Position limit reached for this instrument' };
 
     const state = this.book(input.book);
     state.orders++;
 
     if (input.type === 'market') {
-      return this.executeImmediate(input.book, inst, input.side, qty, undefined);
+      return this.executeImmediate(input.book, inst, input.side, qty, undefined, owner);
     }
 
     const limit = input.price === undefined ? undefined : roundToTick(input.price, inst.tick);
@@ -169,27 +183,27 @@ export class Broker {
     }
 
     if (input.type === 'ioc') {
-      return this.executeImmediate(input.book, inst, input.side, qty, limit);
+      return this.executeImmediate(input.book, inst, input.side, qty, limit, owner);
     }
 
     const bestBid = inst.book.bids[0]?.price ?? 0;
     const bestAsk = inst.book.asks[0]?.price ?? 0;
     const crosses = input.side === 'buy' ? limit >= bestAsk : limit <= bestBid;
     if (crosses) {
-      const result = this.executeImmediate(input.book, inst, input.side, qty, limit);
+      const result = this.executeImmediate(input.book, inst, input.side, qty, limit, owner);
       const filled = result.filled ?? 0;
       if (filled >= qty) return result;
       const remaining = qty - filled;
-      const rest = this.restOrder(input.book, input.instrument, input.side, remaining, limit);
+      const rest = this.restOrder(input.book, input.instrument, input.side, remaining, limit, owner);
       if (!rest.ok) return { ...result, ok: true };
       return { ...result, order: rest.order, filled };
     }
 
-    return this.restOrder(input.book, input.instrument, input.side, qty, limit);
+    return this.restOrder(input.book, input.instrument, input.side, qty, limit, owner);
   }
 
-  private restOrder(bookName: string, instrument: string, side: Side, qty: number, price: number): PlaceResult {
-    const room = this.roomFor(instrument, side);
+  private restOrder(bookName: string, instrument: string, side: Side, qty: number, price: number, owner = ownerOf(bookName)): PlaceResult {
+    const room = this.roomFor(instrument, side, owner);
     if (room <= 0) return { ok: false, error: 'Position limit reached for this instrument' };
     const size = Math.min(qty, room);
     const order: InternalOrder = {
@@ -214,6 +228,7 @@ export class Broker {
     side: Side,
     qty: number,
     limit: number | undefined,
+    owner = ownerOf(bookName),
   ): PlaceResult {
     const levels = side === 'buy' ? inst.book.asks : inst.book.bids;
     let remaining = qty;
@@ -226,7 +241,7 @@ export class Broker {
       const level = levels[0];
       if (side === 'buy' && level.price > levelLimit + 1e-9) break;
       if (side === 'sell' && level.price < levelLimit - 1e-9) break;
-      const room = this.fillRoom(inst.id, side);
+      const room = this.fillRoom(inst.id, side, owner);
       if (room <= 0) break;
       const take = Math.min(remaining, level.size, room);
       if (take <= 0) break;
@@ -350,7 +365,7 @@ export class Broker {
         if (order.side === 'buy') {
           const level = inst.book.asks[0];
           if (!level || order.price < level.price) break;
-          const take = Math.min(remaining, level.size, this.fillRoom(inst.id, 'buy'));
+          const take = Math.min(remaining, level.size, this.fillRoom(inst.id, 'buy', ownerOf(order.strategy)));
           if (take <= 0) break;
           this.executeFill(order.strategy, inst.id, 'buy', level.price, take, order.id, 'sell');
           level.size -= take;
@@ -358,7 +373,7 @@ export class Broker {
         } else {
           const level = inst.book.bids[0];
           if (!level || order.price > level.price) break;
-          const take = Math.min(remaining, level.size, this.fillRoom(inst.id, 'sell'));
+          const take = Math.min(remaining, level.size, this.fillRoom(inst.id, 'sell', ownerOf(order.strategy)));
           if (take <= 0) break;
           this.executeFill(order.strategy, inst.id, 'sell', level.price, take, order.id, 'buy');
           level.size -= take;
@@ -388,7 +403,7 @@ export class Broker {
       if (!useUser && syntheticPrice === undefined) break;
 
       if (useUser && user) {
-        const take = Math.min(remaining, user.qty - user.filled, this.fillRoom(inst.id, user.side));
+        const take = Math.min(remaining, user.qty - user.filled, this.fillRoom(inst.id, user.side, ownerOf(user.strategy)));
         if (take <= 0) break;
         if (!firstPrice) firstPrice = user.price;
         this.executeFill(user.strategy, inst.id, user.side, user.price, take, user.id, side);
@@ -420,6 +435,28 @@ export class Broker {
     return true;
   }
 
+  resetOwner(owner: string): void {
+    this.cancelOwner(owner);
+    for (const name of [...this.books.keys()]) {
+      if (ownerOf(name) === owner) this.books.delete(name);
+    }
+    this.trades = this.trades.filter((trade) => {
+      const names = trade.strategies ?? [];
+      return !names.some((name) => ownerOf(name) === owner);
+    });
+  }
+
+  cancelOwner(owner: string): number {
+    let count = 0;
+    for (const [id, order] of this.orders) {
+      if (order.status !== 'open' || ownerOf(order.strategy) !== owner) continue;
+      order.status = 'cancelled';
+      this.orders.delete(id);
+      count++;
+    }
+    return count;
+  }
+
   cancelAll(bookName?: string): number {
     let count = 0;
     for (const [id, order] of this.orders) {
@@ -441,13 +478,13 @@ export class Broker {
     }
   }
 
-  mergeBook(id: string): Book {
+  mergeBook(id: string, owner?: string): Book {
     const inst = this.market.get(id);
     if (!inst) return EMPTY_BOOK();
     const bids: Level[] = inst.book.bids.map((l) => ({ ...l }));
     const asks: Level[] = inst.book.asks.map((l) => ({ ...l }));
     for (const order of this.openForInstrument(id)) {
-      const level = { price: order.price, size: order.qty - order.filled, own: true };
+      const level = { price: order.price, size: order.qty - order.filled, own: owner === undefined || ownerOf(order.strategy) === owner };
       if (order.side === 'buy') bids.push(level);
       else asks.push(level);
     }
@@ -470,9 +507,12 @@ export class Broker {
     return out.slice(0, 10);
   }
 
-  positions(): PositionRow[] {
+  positions(owner?: string): PositionRow[] {
     const ids = new Set<string>();
-    for (const state of this.books.values()) for (const id of state.positions.keys()) ids.add(id);
+    for (const [name, state] of this.books) {
+      if (owner !== undefined && ownerOf(name) !== owner) continue;
+      for (const id of state.positions.keys()) ids.add(id);
+    }
     const rows: PositionRow[] = [];
     for (const id of ids) {
       const inst = this.market.get(id);
@@ -482,6 +522,7 @@ export class Broker {
       let realized = 0;
       const sources: string[] = [];
       for (const [name, state] of this.books) {
+        if (owner !== undefined && ownerOf(name) !== owner) continue;
         const pos = state.positions.get(id);
         if (!pos || pos.qty === 0) continue;
         qty += pos.qty;
@@ -526,13 +567,14 @@ export class Broker {
     return { fills: state?.fills ?? 0, orders: state?.orders ?? 0 };
   }
 
-  totals(): { pnl: number; realized: number; unrealized: number; exposure: number; fills: number } {
+  totals(owner?: string): { pnl: number; realized: number; unrealized: number; exposure: number; fills: number } {
     let pnl = 0;
     let realized = 0;
     let unrealized = 0;
     let exposure = 0;
     let fills = 0;
     for (const name of this.books.keys()) {
+      if (owner !== undefined && ownerOf(name) !== owner) continue;
       const info = this.bookPnl(name);
       pnl += info.pnl;
       realized += info.realized;

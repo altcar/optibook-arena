@@ -1,47 +1,78 @@
 # Optibook Arena
 
-A live, browser-based **dual-market trading terminal** that rebuilds the strategy collection from
-[`altcar/htb-optiver-challenge`](https://github.com/altcar/htb-optiver-challenge) and runs it on
-**Cloudflare Workers**.
+A live, browser-based **paper-trading competition for developer-built trading bots**, rebuilt on
+Cloudflare Workers from the strategy collection in
+[`altcar/htb-optiver-challenge`](https://github.com/altcar/htb-optiver-challenge).
 
-The original hackathon code talks to `optibook.synchronous_client.Exchange`, a connector that died
-when the hosted venue shut down. Optibook Arena replaces it with a self-contained synthetic venue:
-five stocks, five dual listings, a real-time order book, a news wire, manual buy/sell, and six
-strategy engines executing server-side inside a Durable Object.
+Five stocks. Five dual listings. Six strategy families. A declarative bot upload format, seasons,
+tournaments, a leaderboard with win rate and Sharpe, a forum, a newsletter, and isolated paper
+accounts with login.
 
-**Live demo:** <https://optibook-arena.hheylau.workers.dev>
+**Live site:** <https://optibook-arena.hheylau.workers.dev>
 
-> **Simulation only.** No real money, no real exchange, no financial advice.
+> **Simulation only.** No real money, no real exchange, no deposits, no financial advice. Prizes are
+> simulated credits with no cash value.
 
 ---
 
 ## What is inside
 
-- **5 dual-listed pairs** — `NVDA`, `CSCO`, `ING`, `SAN`, `PFE`, each with a `_DUAL` instrument
-  (10 books total).
-- **Live WebSocket feed** — snapshot on connect, then 2 Hz state ticks with books, positions,
-  orders, prints, news, strategy P&L, and equity.
-- **Buy/sell logic** — market, limit, and IOC orders, resting orders, partial fills, crossing,
-  random aggressor flow, and ±100 share position limits.
-- **Order book ladder** — synthetic depth plus your working orders, click any price to load it
-  into the ticket.
-- **All six strategy families** — every engine is toggleable, tunable, and attributed its own P&L:
-  dual market making, pair hedging, dual arbitrage, news sentiment, momentum, and the adaptive
-  final controller.
-- **News wire** — synthetic headlines affect fair value and the sentiment engine; publish your own
-  headline from the dashboard and watch the reaction.
-- **Durable Object persistence** — positions, P&L, news, and strategy state survive restarts.
-- **No external services** — the Worker serves the static React app, the REST API, the WebSocket,
-  and the simulation.
+### Competition platform
 
-## Screenshot
+- **Accounts** — register/sign in with username or email, PBKDF2 password hashes, HttpOnly sessions.
+- **Isolated paper accounts** — every trader starts with $100,000. Positions, orders, P&L, bots and
+  equity curves are namespaced per user, so one account cannot see or spend another's book.
+- **Bot console** — deploy a house family, load a template, or drop a `.json` spec; validate before
+  deploy, pause/resume, delete, and inspect P&L, fills and win rate.
+- **Six strategy families** — Dual Maker, Pair Hedger, Dual Arbitrage, News Sentiment, Momentum
+  Maker and Adaptive Maker, all runnable per account from the dashboard.
+- **Custom rule bots** — a safe declarative DSL with 7 trigger fields, 3 operators, order/pair
+  actions, cooldowns and risk limits. No arbitrary code execution.
+- **Leaderboard** — Open and Raised divisions, season filter, search, podium, trend sparklines,
+  P&L, return, win rate, Sharpe and fills.
+- **Seasons** — 47-day rule sets with changing inventory caps, fees, eligible families and payout
+  structure; live season hub and archive.
+- **Tournaments** — 24–72 hour formats with entry rules, capacity, prize pools and registration.
+- **Rules** — a public `/rules` page plus [`RULES.md`](RULES.md): eligibility, scoring, conduct,
+  sanctions and appeals.
+- **Forum** — categories, pinned threads, replies, staff badges and moderation rules.
+- **Newsletter** — subscribe/unsubscribe-style signup, subscriber count and a seeded issue archive.
+- **Pricing** — `/pricing` plus [`BUSINESS_PLAN.md`](BUSINESS_PLAN.md) with plans, projections,
+  unit economics and GTM.
 
-![Optibook Arena terminal](docs/terminal.png)
+### Market and terminal
+
+- **5 dual-listed pairs** — `NVDA`, `CSCO`, `ING`, `SAN`, `PFE`, each with a `_DUAL` listing
+  (10 instruments).
+- **Live WebSocket feed** — snapshot on connect, then 2 Hz personalised ticks with books, positions,
+  orders, prints, news, bot stats and account equity.
+- **Buy/sell execution** — market, limit and IOC orders, resting orders, partial fills, crossing,
+  synthetic aggressor flow and a 100-share account position cap.
+- **Order book ladder** — synthetic depth plus your working orders; click a price to load the ticket.
+- **Price chart, trade tape, watchlist, stats strip** — the original terminal, now account-aware.
+- **News wire** — synthetic headlines move fair value and sentiment strategies; authenticated users
+  can publish a manual headline.
+- **Durable Object persistence** — market, broker, users, sessions, bots, forum, newsletter and
+  tournament registrations survive restarts.
+
+## Screenshots
+
+| Landing | Leaderboard |
+| --- | --- |
+| ![Landing page](docs/landing.png) | ![Leaderboard](docs/leaderboard.png) |
+
+| Trading terminal | Bot console |
+| --- | --- |
+| ![Trading terminal](docs/terminal.png) | ![Bot console](docs/bots.png) |
 
 ## Documentation
 
-- [Features, implementation, and real-market limitations](FEATURES.md) — what the app does, how each
-  part works, and why the same information or execution is impossible in a real market.
+- [Platform rules](RULES.md) — the rule book of record.
+- [Bot upload spec](BOT_UPLOAD.md) — schema, examples, triggers, actions, validation and limits.
+- [Business plan and pricing](BUSINESS_PLAN.md) — plans, market, projections, unit economics, GTM.
+- [Features, implementation and real-market limitations](FEATURES.md) — what each part does, how it
+  works, and why the same thing is impossible in a real market.
+- Public pages: `/rules`, `/docs/bots`, `/pricing`, `/stack`.
 
 ---
 
@@ -49,175 +80,219 @@ strategy engines executing server-side inside a Durable Object.
 
 ```
 ┌────────────────────────────── Browser ──────────────────────────────┐
-│  React 19 terminal (Vite build, served as Worker static assets)     │
-│  Watchlist · chart · book · tape · ticket · positions · strategies  │
+│  React 19 + Vite SPA                                                │
+│  Public site · auth · dashboard · bot console · leaderboard · forum │
 └───────────────▲──────────────────────────────┬──────────────────────┘
                 │ WebSocket /ws                 │ REST /api/*
 ┌───────────────┴──────────────────────────────▼──────────────────────┐
 │  Cloudflare Worker  (src/worker/index.ts)                           │
-│  routes /ws and /api/* to one Durable Object, everything else to    │
-│  the asset binding                                                  │
+│  routes /ws and /api/* to one ArenaEngine Durable Object             │
+│  everything else to the static asset binding                        │
 └───────────────┬─────────────────────────────────────────────────────┘
                 │
 ┌───────────────▼─────────────────────────────────────────────────────┐
-│  Durable Object: ArenaEngine  (single-threaded, 250 ms tick)        │
-│                                                                     │
-│  MarketSim ── fair value walks, dual basis, synthetic depth         │
-│  NewsEngine ─ headlines, lexicon sentiment, manual injection        │
-│  Broker ───── matching, fills, positions, P&L, order book overlay   │
-│  Strategies ─ six engines, per-strategy books and parameters        │
-│  Storage ──── periodic snapshots (SQLite-backed Durable Object)     │
+│  ArenaEngine Durable Object  (src/worker/engine.ts)                 │
+│  250 ms tick · MarketSim · Broker · strategy runtime · bot runtime   │
+│  auth/sessions · platform state · scoring · WebSocket fan-out        │
+│  SQLite-backed Durable Object storage                                │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Simulation model
+### Source map
 
-- Each stock has a fair value that follows a random walk with mean reversion, volatility drag,
-  and decaying news impulses.
-- Each dual has its own fair value: `stock fair × (1 + basis)`. The basis is an Ornstein–Uhlenbeck
-  process with occasional jumps, which creates the arbitrage windows.
-- Every tick rebuilds a seven-level synthetic book per instrument. Random aggressor orders consume
-  the book; resting user and strategy orders are matched against it.
-- Account model: $250,000 starting equity, one global ±100 share limit per instrument, zero fees.
-- All six strategies are enabled on a fresh arena. Toggle them independently at any time.
+| Path | Responsibility |
+| --- | --- |
+| `src/shared/types.ts` | Instruments, API/feed contracts, platform types. |
+| `src/worker/index.ts` | Worker router: API/WS to the DO, assets otherwise. |
+| `src/worker/engine.ts` | Tick loop, auth, accounts, bots, leaderboard, seasons, tournaments, forum, newsletter, WebSocket. |
+| `src/worker/market.ts` | Synthetic dual-market venue and order books. |
+| `src/worker/broker.ts` | Owner-scoped matching, positions, P&L, order merging. |
+| `src/worker/strategies.ts` | Six strategy families on a generic context. |
+| `src/worker/bots.ts` | Bot validation, family runtime and custom rule interpreter. |
+| `src/worker/platform.ts` | Persistent records, seed data, seasons, tournaments, forum, newsletter. |
+| `src/worker/auth.ts` | PBKDF2 hashing, cookies, session helpers. |
+| `src/worker/news.ts` | Headline generator, sentiment lexicon, manual wire. |
+| `src/client/*` | SPA router, auth, terminal, public pages, bot console. |
+| `tests/platform.spec.ts` | Playwright end-to-end coverage of every feature. |
+
+---
 
 ## Strategies
 
-| Engine | Origin | Behaviour |
-| --- | --- | --- |
-| **Dual Maker** | `arbStrat1`, `arbStrat2`, `final_solution` | Quotes the stock around the blended stock/dual mid with inventory skew and cancel/replace on drift. |
-| **Pair Hedger** | `arbStrat2/hedge_strategy.py` | Watches net delta across each stock/dual pair and flattens with IOC orders once the hedge band breaks. |
-| **Dual Arbitrage** | `strat_worky/main.py`, `arbStrat4` | Sells the rich leg and buys the cheap leg when the stock/dual basis clears the configured edge. |
-| **News Sentiment** | `arbStrat2sentiment`, `arbStrat3` | Scores the newswire, shifts fair value per ticker, leans quotes, and takes liquidity on strong headlines. |
-| **Momentum Maker** | `hugoarbones/momentum.py` | Adds a short-horizon momentum bias, widens with realised volatility, and scales size with inventory risk. |
-| **Adaptive Maker** | `final_solution/controller.py` | `tanh` inventory skew, spread that adapts to the live market, and batching hedges above a delta threshold. |
+| Family | What it does |
+| --- | --- |
+| **Dual Maker** | Quotes the stock around the blended stock/dual mid with inventory skew. |
+| **Pair Hedger** | Measures net delta across each pair and flattens with IOC orders once the band breaks. |
+| **Dual Arbitrage** | Sells the rich leg and buys the cheap leg when the basis clears a threshold. |
+| **News Sentiment** | Scores the synthetic wire and leans or takes liquidity on strong headlines. |
+| **Momentum Maker** | Adds a short-horizon momentum bias and volatility-scaled spreads. |
+| **Adaptive Maker** | tanh inventory skew, volatility-adaptive spread, batching hedges. |
+| **Custom** | Uploaded declarative triggers and actions (see `BOT_UPLOAD.md`). |
 
-Every card exposes its live P&L, fill count, net quantity, gross exposure, and numeric parameters.
-Changes apply on the next engine tick.
-
-The original repository contains several near-duplicate controllers and experimental variants
-(`controllerEdge`, `controllerFixReconnect`, `good1`, `mm`, `mm_ilegal`, and so on). The six engines
-above consolidate the distinct approaches; the archived variants remain under [`legacy/`](legacy/README.md)
-for comparison.
+The original Python ports and attribution live in `legacy/`.
 
 ---
 
 ## Run locally
 
-Requirements: **Node.js 22+** (LTS recommended).
+Requirements: Node 22+, npm, a Cloudflare account for deployment.
 
 ```bash
-npm install
-npm run dev
-# open http://localhost:8787
+npm ci
+npm run dev        # build then wrangler dev
+# open http://127.0.0.1:8787
 ```
 
-`npm run dev` builds the React client and starts `wrangler dev`, which runs the Worker, the Durable
-Object, and the static assets locally.
+`npm run dev` uses the local Durable Object and local asset binding. State is persisted under
+`.wrangler/`.
 
-Other scripts:
+### Typecheck and build
 
 ```bash
-npm run typecheck   # client + worker TypeScript projects
-npm run build       # typecheck + Vite production build into dist/client
-npm run deploy      # build + wrangler deploy
+npm run typecheck
+npm run build
 ```
+
+### End-to-end tests
+
+The Playwright suite covers public pages, registration, login/logout, manual trading, all six
+strategy families, bot template deployment, JSON validation, custom upload, leaderboard visibility,
+tournament registration, forum thread + reply, newsletter signup, WebSocket snapshots and mobile
+layout.
+
+```bash
+npx playwright install chromium   # first run on a machine without a browser
+npm run test:e2e
+```
+
+On Windows with Edge installed, the config uses the `msedge` channel by default. Set `CI=1` to use
+bundled Chromium instead.
+
+The suite starts `wrangler dev` automatically if no server is running on port 8787.
+
+### Smoke test
+
+```bash
+node scripts/smoke.mjs http://127.0.0.1:8787
+```
+
+---
 
 ## Deploy to workers.dev
 
-`main` is connected to **Cloudflare Workers Builds**. Every push runs:
-
 ```bash
+npm run deploy
+```
+
+`wrangler.jsonc` binds:
+
+- `ARENA` — the `ArenaEngine` Durable Object (SQLite-backed).
+- `ASSETS` — the built SPA in `dist/client`, with SPA fallback.
+
+The GitHub `main` branch is connected to **Cloudflare Workers Builds**. A push to `main` runs:
+
+```
 npm ci && npm run build
 npx wrangler deploy
 ```
 
-The build uses Node 22, caches `node_modules`, and deploys with the Worker's Durable Object
-migration. You can also deploy manually from a checkout:
-
-```bash
-npx wrangler login
-npm run deploy
-```
-
-The Worker name is `optibook-arena`. Wrangler prints the resulting
-`https://optibook-arena.<your-subdomain>.workers.dev` URL.
-
-The public demo is intentionally unauthenticated: anyone with the URL can trade, toggle strategies,
-publish news, or reset the arena. Treat it as a shared sandbox, not a production trading system.
-
-The Durable Object uses the SQLite storage backend (`new_sqlite_classes`), which is available on the
-Workers free plan. No KV, R2, D1, or external API keys are required.
+Build settings: root `/`, Node 22, Wrangler 4.x, dependency caching on, previews off.
 
 ---
 
 ## API
 
-| Method | Path | Body / purpose |
+All mutating endpoints require a session cookie (or a bearer token returned by login/register).
+Errors are JSON `{ "error": string }`.
+
+### Auth
+
+| Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/health` | Health, tick, equity, socket count, enabled strategies. |
-| `GET` | `/api/state` | Full snapshot (instruments, books, positions, orders, trades, news, strategies, stats). |
-| `POST` | `/api/order` | `{ instrument, side: "buy"\|"sell", qty, type: "market"\|"limit", price? }` |
-| `POST` | `/api/cancel` | `{ id }` to cancel one manual order, or `{ all: true }` for all manual orders. |
-| `POST` | `/api/strategy` | `{ id, enabled?, config? }` to toggle or tune an engine. |
-| `POST` | `/api/news` | `{ text, tickers?, sentiment? }` to publish a manual headline. |
-| `POST` | `/api/config` | `{ speed?: 0.25–4, volatility?: 0.25–3 }` |
-| `POST` | `/api/reset` | Clear positions, P&L, news, and restart the session. |
+| `POST` | `/api/auth/register` | `{username,email,password}` → user, account, token. |
+| `POST` | `/api/auth/login` | `{login,password}` → user, account, token. |
+| `POST` | `/api/auth/logout` | Clear the session cookie. |
+| `GET` | `/api/auth/me` | Current user and account summary. |
 
-### WebSocket protocol
+### Trading and account
 
-Connect to `wss://<host>/ws`.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/state` | Personalised snapshot. |
+| `GET` | `/api/health` | Engine health and house stats. |
+| `POST` | `/api/order` | `{instrument,side,qty,type,price?}`. |
+| `POST` | `/api/cancel` | `{id}` or `{all:true}` for manual orders. |
+| `POST` | `/api/strategy` | `{id,enabled?,config?}` for the viewer's account. |
+| `POST` | `/api/news` | Publish a manual headline. |
+| `POST` | `/api/config` | Simulation speed/volatility. |
+| `POST` | `/api/account/reset` | Flatten and reset the viewer's paper account. |
+| `WS` | `/ws` | Personalised snapshot, ticks and pong. |
 
-- Server → client `{ type: "snapshot", ... }` on connect and on request.
-- Server → client `{ type: "tick", ... }` every 500 ms with deltas for trades/news and full state
-  for books, positions, orders, strategies, and stats.
-- Client → server `{ type: "ping" }` → `{ type: "pong", ts }`.
-- Client → server `{ type: "snapshot" }` to force a fresh snapshot after a reconnect.
+### Bots
 
-The client reconnects with exponential backoff and reports round-trip latency in the top bar.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/bots` | List the viewer's bots and plan limit. |
+| `GET` | `/api/bots/template` | Download template specs. |
+| `POST` | `/api/bots/validate` | Dry-run validation. |
+| `POST` | `/api/bots` | Create/deploy a bot. |
+| `PUT` | `/api/bots/:id` | Replace a bot spec (cancels open orders). |
+| `POST` | `/api/bots/:id/status` | `{status:"active"\|"paused"}`. |
+| `DELETE` | `/api/bots/:id` | Delete a bot. |
+
+### Platform
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/platform` | Landing-page overview. |
+| `GET` | `/api/leaderboard?season=&division=` | Ranked entries. |
+| `GET` | `/api/seasons` · `/api/season/:id` | Season list and detail. |
+| `GET` | `/api/tournaments` | Tournament list. |
+| `POST` | `/api/tournaments/:id/register` | Register the viewer. |
+| `GET`/`POST` | `/api/forum` | List/create threads. |
+| `GET` | `/api/forum/:id` | Thread with posts. |
+| `POST` | `/api/forum/:id/reply` | Reply. |
+| `GET`/`POST` | `/api/newsletter` | Issues / subscribe. |
 
 ---
 
-## Porting notes
+## Security and integrity
 
-- The original `optibook.synchronous_client` connector and its LZ4/MessagePack WebSocket feed no
-  longer exist, so the Worker owns a synthetic venue and speaks JSON over WebSocket instead.
-- `arbStrat2sentiment` loaded a DistilBERT/PyTorch model. Workers cannot load those weights, so the
-  running sentiment engine uses a deterministic finance lexicon; the original model files remain in
-  the archived source for reference.
-- Exchange calls such as `get_positions`, `get_pnl`, `get_last_price_book`, and `get_outstanding_orders`
-  are replaced by the broker's book-keeping and merged order book.
-- Duplicate controllers are consolidated into six configurable engines rather than copied one-to-one.
+- Passwords: PBKDF2-SHA256, 100,000 iterations, random 16-byte salt.
+- Sessions: 256-bit random token in an HttpOnly, SameSite=Lax cookie; 30-day expiry.
+- Login throttling: per-IP attempt window.
+- Uploads: JSON only, server-side validation, 128 KB file / 256 KB request limits.
+- Bot isolation: namespaced books `u:<userId>:bot:<botId>` and owner-scoped position caps.
+- No `eval`, `Function`, dynamic import, filesystem, outbound fetch or timers in the bot runtime.
+- Registration enforces unique usernames and emails; one account per person is a rule, not a
+  technical guarantee.
+- Leaderboard rows are derived from persisted broker state, not client input.
+
+## Real-market limitations
+
+This is a synthetic venue. It does not model latency, queue position, market impact, adverse
+selection, borrow, corporate actions, exchange fees, regulation or counterparty risk. Paper results
+are not predictive of live performance. See [`FEATURES.md`](FEATURES.md) for a feature-by-feature
+explanation of the gap.
 
 ## Repository layout
 
 ```
 src/
-  shared/types.ts          shared contracts, instrument + strategy metadata
-  worker/
-    index.ts               Worker router: assets, /api, /ws
-    engine.ts              Durable Object: tick loop, state, HTTP/WS, persistence
-    market.ts              synthetic venue: fair values, dual basis, books
-    broker.ts              matching, fills, positions, P&L, order overlay
-    news.ts                headline generator, lexicon sentiment, manual wire
-    strategies.ts          six TypeScript strategy ports
-    rng.ts                 random + tick helpers
-  client/
-    App.tsx                terminal composition
-    useArena.ts            WebSocket + REST state hook
-    components/            watchlist, chart, book, tape, ticket, positions, strategies, news
-    styles.css             dark trading-terminal design system
-legacy/                    archived original Python strategies + attribution
-docs/                      README assets
+  client/          React SPA: pages, terminal, auth, router, styles
+  shared/          Types shared by client and worker
+  worker/          Engine, market, broker, bots, strategies, auth, platform
+tests/             Playwright end-to-end tests
+scripts/           Smoke test and deployment helpers
+docs/              Screenshots
+legacy/            Original Python strategies and attribution
 ```
 
 ## Legacy code
 
-Selected original Python files are archived under [`legacy/`](legacy/README.md) for comparison and
-attribution. They are not executed by the Worker. The original repository is linked above; its
-strategy code belongs to its authors and is not relicensed by this project's MIT license.
+The original HTB Optiver challenge strategies are archived in `legacy/` with attribution. They are
+not executed by the live app. See `legacy/README.md`.
 
 ## License
 
-MIT for the new Optibook Arena code. See [LICENSE](LICENSE). Legacy files retain their original
-authorship.
+MIT. See [LICENSE](LICENSE).

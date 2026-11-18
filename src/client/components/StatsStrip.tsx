@@ -64,14 +64,14 @@ export function StatsStrip({ stats, equity, startingCash }: { stats: Stats; equi
       <StatCard
         label="Gross exposure"
         value={fmtMoney(stats.exposure)}
-        sub={`${stats.fills.toLocaleString('en-US')} fills across 6 strategy books`}
+        sub={`${stats.fills.toLocaleString('en-US')} fills across your books`}
         icon="layers"
         accent="#a78bfa"
       />
       <StatCard
-        label="Dual arb ops"
+        label="Account arb ops"
         value={fmtCompact(stats.arbOps)}
-        sub="Crossed stock / dual basis executions"
+        sub="Basis executions attributed to you"
         icon="bolt"
         accent="#f59e0b"
       />

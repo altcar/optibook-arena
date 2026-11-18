@@ -23,6 +23,7 @@ export function TopBar({
   tick,
   uptime,
   config,
+  username,
   onSpeed,
   onReset,
 }: {
@@ -31,6 +32,7 @@ export function TopBar({
   tick: number;
   uptime: number;
   config: ArenaConfig;
+  username?: string;
   onSpeed: (speed: number) => void;
   onReset: () => void;
 }) {
@@ -46,7 +48,7 @@ export function TopBar({
             <span className="brand">OPTIBOOK<span className="brand-accent">ARENA</span></span>
             <span className="version-pill">v1.0</span>
           </div>
-          <span className="brand-sub">Dual-market strategy terminal · 5 pairs · 10 books</span>
+          <span className="brand-sub">Paper trading terminal · 5 pairs · 10 books</span>
         </div>
       </div>
 
@@ -68,6 +70,16 @@ export function TopBar({
           <span>{fmtUptime(uptime / 1000)}</span>
         </div>
         <UtcClock />
+        {username && (
+          <a className="meta-item topbar-user" href="/dashboard" title="Account dashboard">
+            <span className="avatar avatar-sm">{username.slice(0, 1).toUpperCase()}</span>
+            <span>{username}</span>
+          </a>
+        )}
+        <a className="meta-item topbar-link" href="/leaderboard">
+          <Icon name="external" size={13} />
+          <span className="hide-small">Platform</span>
+        </a>
         <label className="speed-control" title="Simulation speed (price movement + news frequency)">
           <span>Speed</span>
           <select value={config.speed} onChange={(event) => onSpeed(Number(event.target.value))}>
@@ -77,9 +89,9 @@ export function TopBar({
             <option value={4}>4×</option>
           </select>
         </label>
-        <button className="btn btn-ghost reset-btn" onClick={onReset} title="Reset the arena">
+        <button className="btn btn-ghost reset-btn" onClick={onReset} title="Reset your paper account">
           <Icon name="refresh" size={14} />
-          <span className="hide-small">Reset</span>
+          <span className="hide-small">Reset account</span>
         </button>
       </div>
     </header>

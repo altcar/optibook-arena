@@ -151,6 +151,9 @@ export interface ArenaSnapshot {
   config: ArenaConfig;
   startingCash: number;
   positionLimit: number;
+  viewer?: SessionUser | null;
+  account?: AccountSummary;
+  bots?: BotInfo[];
 }
 
 export interface ArenaTick {
@@ -165,6 +168,9 @@ export interface ArenaTick {
   strategies: StrategyInfo[];
   stats: Stats;
   equityPoint: number;
+  viewer?: SessionUser | null;
+  account?: AccountSummary;
+  bots?: BotInfo[];
 }
 
 export type ServerMessage =
@@ -268,3 +274,270 @@ export function instrumentName(id: string): string {
   const name = INSTRUMENT_NAMES[base] ?? base;
   return id.endsWith('_DUAL') ? `${name} · Dual` : name;
 }
+
+/* ------------------------------------------------------------------------- */
+/* Competition platform                                                       */
+/* ------------------------------------------------------------------------- */
+
+export type Plan = 'free' | 'pro' | 'desk';
+export type Division = 'open' | 'raised';
+export type BotStatus = 'active' | 'paused' | 'draft';
+export type BotFamily =
+  | 'dual-mm'
+  | 'hedge'
+  | 'dual-arb'
+  | 'sentiment-mm'
+  | 'momentum-mm'
+  | 'adaptive-mm'
+  | 'custom';
+
+export interface SessionUser {
+  id: string;
+  username: string;
+  email: string;
+  plan: Plan;
+  division: Division;
+  createdAt: number;
+  startingCash: number;
+}
+
+export interface AccountSummary {
+  userId: string;
+  username: string;
+  plan: Plan;
+  division: Division;
+  startingCash: number;
+  equity: number;
+  pnl: number;
+  pnlPct: number;
+  realized: number;
+  unrealized: number;
+  exposure: number;
+  fills: number;
+  openOrders: number;
+  bots: number;
+  activeBots: number;
+  rank: number | null;
+}
+
+export interface BotRisk {
+  maxPosition: number;
+  maxGross: number;
+  maxOrdersPerMin: number;
+}
+
+export type RuleField =
+  | 'basisBps'
+  | 'changePct'
+  | 'sentiment'
+  | 'momentumBps'
+  | 'spreadBps'
+  | 'inventory'
+  | 'priceVsFairBps';
+
+export type RuleOp = 'gt' | 'lt' | 'abs_gt';
+
+export interface BotTrigger {
+  field: RuleField;
+  op: RuleOp;
+  value: number;
+  instrument?: string;
+}
+
+export interface BotAction {
+  type: 'order' | 'pair';
+  instrument?: string;
+  side?: Side;
+  qty?: number;
+  orderType?: 'market' | 'ioc' | 'limit';
+  offsetBps?: number;
+  long?: string;
+  short?: string;
+}
+
+export interface BotRule {
+  when: BotTrigger[];
+  action: BotAction;
+  cooldownMs?: number;
+}
+
+export interface BotSpec {
+  name: string;
+  description?: string;
+  family: BotFamily;
+  params: Record<string, number>;
+  risk: BotRisk;
+  universe: StockSymbol[];
+  rules?: BotRule[];
+}
+
+export interface BotRound {
+  ts: number;
+  pnl: number;
+  trades: number;
+  win: boolean;
+}
+
+export interface BotInfo {
+  id: string;
+  name: string;
+  description: string;
+  family: BotFamily;
+  familyName: string;
+  params: Record<string, number>;
+  risk: BotRisk;
+  universe: StockSymbol[];
+  rules?: BotRule[];
+  status: BotStatus;
+  source: 'template' | 'upload' | 'custom';
+  createdAt: number;
+  updatedAt: number;
+  pnl: number;
+  realized: number;
+  unrealized: number;
+  fills: number;
+  orders: number;
+  netQty: number;
+  exposure: number;
+  winRate: number | null;
+  rounds: BotRound[];
+  trend: number[];
+  rank: number | null;
+  owner?: string;
+  division?: Division;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  botId: string;
+  botName: string;
+  owner: string;
+  division: Division;
+  seasonId: number;
+  pnl: number;
+  pnlPct: number;
+  winRate: number;
+  trades: number;
+  sharpe: number;
+  status: BotStatus | 'seeded';
+  trend: number[];
+  verified: boolean;
+  isViewer: boolean;
+  family: BotFamily;
+}
+
+export type SeasonStatus = 'live' | 'upcoming' | 'past';
+
+export interface Season {
+  id: number;
+  name: string;
+  tagline: string;
+  status: SeasonStatus;
+  startsAt: number;
+  endsAt: number;
+  prizePool: number;
+  entry: string;
+  description: string;
+  rules: string[];
+  allowedFamilies: BotFamily[];
+  startingCash: number;
+  positionLimit: number;
+  feeBps: number;
+  divisions: Division[];
+}
+
+export type TournamentStatus = 'live' | 'upcoming' | 'completed';
+
+export interface Tournament {
+  id: string;
+  name: string;
+  description: string;
+  format: string;
+  status: TournamentStatus;
+  startsAt: number;
+  endsAt: number;
+  prize: number;
+  entry: string;
+  participants: number;
+  capacity: number;
+  seasonId: number;
+  rules: string[];
+  registered: boolean;
+  standings?: LeaderboardEntry[];
+}
+
+export interface ForumThreadSummary {
+  id: string;
+  title: string;
+  excerpt: string;
+  category: string;
+  author: string;
+  authorPlan: Plan | 'staff';
+  createdAt: number;
+  lastAt: number;
+  replies: number;
+  views: number;
+  likes: number;
+  pinned: boolean;
+  tags: string[];
+}
+
+export interface ForumPost {
+  id: string;
+  threadId: string;
+  author: string;
+  authorPlan: Plan | 'staff';
+  body: string;
+  createdAt: number;
+  likes: number;
+  staff?: boolean;
+}
+
+export interface ForumThread extends ForumThreadSummary {
+  posts: ForumPost[];
+}
+
+export interface NewsletterIssue {
+  id: string;
+  number: number;
+  title: string;
+  subject: string;
+  summary: string;
+  publishedAt: number;
+  readTime: string;
+  highlights: string[];
+}
+
+export interface PlatformStats {
+  traders: number;
+  bots: number;
+  liveBots: number;
+  volume: number;
+  prizePool: number;
+  newsletterSubscribers: number;
+  forumThreads: number;
+}
+
+export interface PlatformOverview {
+  stats: PlatformStats;
+  season: Season | null;
+  seasons: Season[];
+  leaderboard: LeaderboardEntry[];
+  tournaments: Tournament[];
+  newsletter: NewsletterIssue[];
+  market: InstrumentTick[];
+}
+
+export interface AuthResponse {
+  user: SessionUser;
+  account: AccountSummary;
+  token?: string;
+}
+
+export interface BotValidation {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  spec?: BotSpec;
+}
+
