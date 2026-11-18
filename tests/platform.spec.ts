@@ -93,8 +93,13 @@ test.describe('account and trading', () => {
     await expect(page.locator('.account-banner')).toContainText(username);
     await expect(page.locator('body')).toContainText(/account equity/i);
 
-    await page.getByRole('button', { name: /Buy 10 NVDA/i }).click();
-    await expect(page.locator('.positions-panel')).toContainText('NVDA');
+    await expect(page.locator('.topbar .live-pill.live')).toBeVisible();
+    const [orderResponse] = await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/api/order')),
+      page.getByRole('button', { name: /Buy 10 NVDA/i }).click(),
+    ]);
+    expect(orderResponse.ok()).toBeTruthy();
+    await expect(page.locator('.positions-panel')).toContainText('NVDA', { timeout: 20_000 });
     await expect(page.locator('.positions-panel')).toContainText('manual');
 
     const account = await page.locator('.account-metrics').innerText();
