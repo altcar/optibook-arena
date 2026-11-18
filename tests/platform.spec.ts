@@ -41,7 +41,7 @@ test.describe('public site', () => {
     await page.goto('/leaderboard');
     const table = page.getByTestId('leaderboard-table');
     await expect(table).toBeVisible();
-    await expect(table.locator('tbody tr').first()).toBeVisible();
+    await expect(table).toContainText('Baseline');
     const rows = await table.locator('tbody tr').count();
     expect(rows).toBeGreaterThan(10);
     await page.getByRole('tab', { name: 'Raised' }).click();
