@@ -9,7 +9,10 @@ import {
   type BotFamily,
   type BotInfo,
   type BotSpec,
+  type BillingInterval,
+  type BillingStatus,
   type BotValidation,
+  type ChatMessage,
   type Division,
   type ForumThread,
   type InstrumentState,
@@ -18,10 +21,12 @@ import {
   type NewsItem,
   type OrderRow,
   type OrderType,
+  type Plan,
   type PlatformOverview,
   type Season,
   type SessionUser,
   type Side,
+  type SubscriptionStatus,
   type Stats,
   type StrategyInfo,
   type Tournament,
@@ -174,6 +179,8 @@ export class ArenaEngine extends DurableObject<Env> {
   private house = new Map<string, StrategyState>();
   private platform: PlatformState = seedPlatform();
   private sockets = new Set<SocketClient>();
+  private chatSockets = new Set<SocketClient>();
+  private chatRate = new Map<string, number>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private seq = 0;
   private tickMs = 0;
@@ -216,6 +223,8 @@ export class ArenaEngine extends DurableObject<Env> {
       if (!this.platform.threads?.length) this.platform.threads = seedPlatform().threads;
       if (!this.platform.tournamentRegs) this.platform.tournamentRegs = {};
       if (!this.platform.equity) this.platform.equity = {};
+      if (!this.platform.chat?.length) this.platform.chat = seedPlatform().chat;
+      if (!this.platform.billingEvents) this.platform.billingEvents = [];
       if (savedArena?.version === 2) {
         this.restore(savedArena);
       } else if (legacy) {
@@ -576,6 +585,10 @@ export class ArenaEngine extends DurableObject<Env> {
       bots: bots.length,
       activeBots: bots.filter((bot) => bot.status === 'active').length,
       rank,
+      subscriptionStatus: user.subscriptionStatus ?? null,
+      billingInterval: user.billingInterval ?? null,
+      renewsAt: user.renewsAt ?? null,
+      billingConfigured: Boolean(this.env.STRIPE_SECRET_KEY),
     };
   }
 
@@ -753,25 +766,6 @@ export class ArenaEngine extends DurableObject<Env> {
 
   private seasonById(id?: number): Season | null {
     if (!id) return CURRENT_SEASON;
-    if (id === 16) {
-      return {
-        ...CURRENT_SEASON,
-        id: 16,
-        name: 'Season 16 · Maker Rebate',
-        tagline: 'A maker-rebate experiment with a tighter taker fee.',
-        status: 'upcoming',
-        startsAt: Date.UTC(2026, 11, 21),
-        endsAt: Date.UTC(2027, 1, 5),
-        prizePool: 30_000,
-        description: 'Season 16 introduces a maker rebate funded by a taker fee, plus a 60-share inventory cap.',
-        rules: [
-          'Starting paper balance: $100,000 per account.',
-          'Maker fills earn a 0.5 bp rebate; taker fills pay 2 bps.',
-          'Max net position: 60 shares per instrument.',
-          'Custom rule bots and all six families are eligible.',
-        ],
-      };
-    }
     return SEASONS.find((season) => season.id === id) ?? null;
   }
 
@@ -864,11 +858,19 @@ export class ArenaEngine extends DurableObject<Env> {
     };
   }
 
+  private tournamentStatus(tournament: Tournament): Tournament['status'] {
+    const now = Date.now();
+    if (now < tournament.startsAt) return 'upcoming';
+    if (now >= tournament.endsAt) return 'completed';
+    return 'live';
+  }
+
   private tournaments(viewerId?: string | null): Tournament[] {
     return TOURNAMENTS.map((tournament) => {
       const regs = this.platform.tournamentRegs[tournament.id] ?? [];
       return {
         ...tournament,
+        status: this.tournamentStatus(tournament),
         participants: tournament.participants + regs.length,
         registered: Boolean(viewerId && regs.includes(viewerId)),
         rules: [...tournament.rules],
@@ -884,6 +886,320 @@ export class ArenaEngine extends DurableObject<Env> {
       .filter((bot) => bot.userId === user.id)
       .map((bot) => ({ ...this.botInfo(bot, user.id), rank: ranks.get(bot.id) ?? null }))
       .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  // -------------------------------------------------------------------------
+  // Billing (Stripe)
+  // -------------------------------------------------------------------------
+
+  private billingStatus(user: UserRecord): BillingStatus {
+    return {
+      configured: Boolean(this.env.STRIPE_SECRET_KEY),
+      plan: user.plan,
+      division: user.division,
+      subscriptionStatus: user.subscriptionStatus ?? null,
+      billingInterval: user.billingInterval ?? null,
+      renewsAt: user.renewsAt ?? null,
+      customer: Boolean(user.stripeCustomerId),
+      portalAvailable: Boolean(user.stripeCustomerId && this.env.STRIPE_SECRET_KEY),
+    };
+  }
+
+  private async stripeRequest(
+    path: string,
+    params: URLSearchParams,
+    method: 'POST' | 'GET' = 'POST',
+  ): Promise<Record<string, unknown>> {
+    const key = this.env.STRIPE_SECRET_KEY;
+    if (!key) throw new Error('Stripe is not configured. Add STRIPE_SECRET_KEY to the Worker environment.');
+    const url = method === 'GET' ? `https://api.stripe.com/v1/${path}?${params.toString()}` : `https://api.stripe.com/v1/${path}`;
+    const response = await fetch(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${key}`,
+        ...(method === 'POST' ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
+      },
+      body: method === 'POST' ? params.toString() : undefined,
+    });
+    const data = (await response.json()) as Record<string, unknown> & { error?: { message?: string } };
+    if (!response.ok) throw new Error(data.error?.message || `Stripe request failed (${response.status})`);
+    return data;
+  }
+
+  private async stripeGet(path: string): Promise<Record<string, unknown>> {
+    return this.stripeRequest(path, new URLSearchParams(), 'GET');
+  }
+
+  private async createCheckout(request: Request, user: UserRecord): Promise<Response> {
+    const body = await this.readJson<{ plan?: Plan; interval?: BillingInterval }>(request);
+    const plan = body?.plan;
+    const interval = body?.interval === 'year' ? 'year' : 'month';
+    if (plan !== 'pro' && plan !== 'desk') return this.json({ error: 'Plan must be pro or desk.' }, 400);
+    if (!this.env.STRIPE_SECRET_KEY) {
+      return this.json(
+        {
+          error:
+            'Stripe is not configured yet. Add STRIPE_SECRET_KEY with `wrangler secret put STRIPE_SECRET_KEY` and redeploy.',
+          code: 'stripe_not_configured',
+        },
+        503,
+      );
+    }
+
+    let customerId = user.stripeCustomerId;
+    if (!customerId) {
+      const customer = await this.stripeRequest(
+        'customers',
+        new URLSearchParams({
+          email: user.email,
+          name: user.username,
+          'metadata[userId]': user.id,
+        }),
+      );
+      customerId = String(customer.id ?? '');
+      if (!customerId) throw new Error('Stripe did not return a customer id.');
+      user.stripeCustomerId = customerId;
+      void this.persist();
+    }
+
+    const amount = plan === 'pro' ? (interval === 'year' ? 19_000 : 1_900) : interval === 'year' ? 99_000 : 9_900;
+    const label = `Optibook Arena ${plan === 'pro' ? 'Pro' : 'Desk'} · ${interval === 'year' ? 'annual' : 'monthly'}`;
+    const origin = this.env.APP_URL || new URL(request.url).origin;
+    const form = new URLSearchParams({
+      mode: 'subscription',
+      customer: customerId,
+      success_url: `${origin}/dashboard?billing=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/pricing?billing=cancelled`,
+      client_reference_id: user.id,
+      'line_items[0][price_data][currency]': 'usd',
+      'line_items[0][price_data][unit_amount]': String(amount),
+      'line_items[0][price_data][recurring][interval]': interval,
+      'line_items[0][price_data][product_data][name]': label,
+      'line_items[0][quantity]': '1',
+      'metadata[userId]': user.id,
+      'metadata[plan]': plan,
+      'metadata[interval]': interval,
+      'subscription_data[metadata][userId]': user.id,
+      'subscription_data[metadata][plan]': plan,
+      'subscription_data[metadata][interval]': interval,
+      allow_promotion_codes: 'true',
+      billing_address_collection: 'auto',
+    });
+    if (plan === 'desk') form.set('subscription_data[metadata][seats]', '5');
+
+    const session = await this.stripeRequest('checkout/sessions', form);
+    const url = typeof session.url === 'string' ? session.url : '';
+    if (!url) throw new Error('Stripe did not return a Checkout URL.');
+    return this.json({ ok: true, url, sessionId: session.id ?? null });
+  }
+
+  private async createPortal(request: Request, user: UserRecord): Promise<Response> {
+    if (!this.env.STRIPE_SECRET_KEY) {
+      return this.json({ error: 'Stripe is not configured yet.', code: 'stripe_not_configured' }, 503);
+    }
+    if (!user.stripeCustomerId) return this.json({ error: 'No Stripe customer on this account yet.' }, 400);
+    const origin = this.env.APP_URL || new URL(request.url).origin;
+    const form = new URLSearchParams({
+      customer: user.stripeCustomerId,
+      return_url: `${origin}/pricing?billing=portal`,
+    });
+    if (this.env.STRIPE_PORTAL_CONFIGURATION_ID) {
+      form.set('configuration', this.env.STRIPE_PORTAL_CONFIGURATION_ID);
+    }
+    const session = await this.stripeRequest('billing_portal/sessions', form);
+    const url = typeof session.url === 'string' ? session.url : '';
+    if (!url) throw new Error('Stripe did not return a billing portal URL.');
+    return this.json({ ok: true, url });
+  }
+
+  private async handleStripeWebhook(request: Request): Promise<Response> {
+    const key = this.env.STRIPE_SECRET_KEY;
+    const secret = this.env.STRIPE_WEBHOOK_SECRET;
+    if (!key || !secret) {
+      return this.json({ error: 'Stripe webhook is not configured.', code: 'stripe_not_configured' }, 503);
+    }
+    const payload = await request.text();
+    const signature = request.headers.get('stripe-signature');
+    if (!signature || !(await this.verifyStripeSignature(payload, signature, secret))) {
+      return this.json({ error: 'Invalid Stripe signature.' }, 400);
+    }
+    let event: { id?: string; type?: string; data?: { object?: Record<string, unknown> } };
+    try {
+      event = JSON.parse(payload);
+    } catch {
+      return this.json({ error: 'Invalid JSON payload.' }, 400);
+    }
+    if (event.id && this.platform.billingEvents.includes(event.id)) return this.json({ received: true });
+    if (event.id) {
+      this.platform.billingEvents.push(event.id);
+      if (this.platform.billingEvents.length > 200) this.platform.billingEvents.shift();
+    }
+
+    const object = event.data?.object ?? {};
+    if (event.type === 'checkout.session.completed') {
+      const user = this.userForStripe(object);
+      if (user) {
+        const metadata = (object.metadata ?? {}) as Record<string, string>;
+        const subscriptionId = typeof object.subscription === 'string' ? object.subscription : undefined;
+        if (subscriptionId) {
+          try {
+            const subscription = await this.stripeGet(`subscriptions/${subscriptionId}`);
+            this.applyStripeSubscription(user, subscription);
+          } catch {
+            this.applyStripeSubscription(user, {
+              ...object,
+              status: 'active',
+              id: subscriptionId,
+              metadata,
+            });
+          }
+        } else {
+          this.applyStripeSubscription(user, { ...object, status: 'active', metadata });
+        }
+        if (typeof object.customer === 'string') user.stripeCustomerId = object.customer;
+        this.enforcePlanBotLimit(user);
+      }
+    } else if (event.type?.startsWith('customer.subscription.')) {
+      const user = this.userForStripe(object);
+      if (user) {
+        this.applyStripeSubscription(user, object);
+        this.enforcePlanBotLimit(user);
+      }
+    } else if (event.type === 'invoice.payment_failed') {
+      const user = this.userForStripe(object);
+      if (user) user.subscriptionStatus = 'past_due';
+    }
+
+    void this.persist();
+    return this.json({ received: true });
+  }
+
+  private userForStripe(object: Record<string, unknown>): UserRecord | null {
+    const metadata = (object.metadata ?? {}) as Record<string, string>;
+    const userId = metadata.userId || (typeof object.client_reference_id === 'string' ? object.client_reference_id : '');
+    if (userId) {
+      const user = this.userById(userId);
+      if (user) return user;
+    }
+    const customer = typeof object.customer === 'string' ? object.customer : '';
+    if (customer) {
+      const user = this.platform.users.find((candidate) => candidate.stripeCustomerId === customer);
+      if (user) return user;
+    }
+    const subscription = typeof object.subscription === 'string' ? object.subscription : '';
+    if (subscription) {
+      return this.platform.users.find((candidate) => candidate.stripeSubscriptionId === subscription) ?? null;
+    }
+    return null;
+  }
+
+  private applyStripeSubscription(user: UserRecord, data: Record<string, unknown>): void {
+    const metadata = (data.metadata ?? {}) as Record<string, string>;
+    const rawStatus = typeof data.status === 'string' ? data.status : 'active';
+    const status = rawStatus as SubscriptionStatus;
+    const plan: Plan = metadata.plan === 'desk' ? 'desk' : user.plan === 'desk' ? 'desk' : 'pro';
+    const interval: BillingInterval = metadata.interval === 'year' ? 'year' : 'month';
+    const paid = status === 'active' || status === 'trialing' || status === 'past_due';
+    user.plan = paid ? plan : 'free';
+    user.division = paid ? 'raised' : 'open';
+    user.subscriptionStatus = status;
+    user.billingInterval = paid ? interval : null;
+    const periodEnd = Number(data.current_period_end ?? 0);
+    user.renewsAt = periodEnd ? periodEnd * 1000 : null;
+    if (typeof data.customer === 'string') user.stripeCustomerId = data.customer;
+    if (typeof data.id === 'string' && data.id.startsWith('sub_')) user.stripeSubscriptionId = data.id;
+    if (typeof data.subscription === 'string') user.stripeSubscriptionId = data.subscription;
+  }
+
+  private enforcePlanBotLimit(user: UserRecord): void {
+    const limit = planBotLimit(user.plan);
+    const bots = this.platform.bots
+      .filter((bot) => bot.userId === user.id)
+      .sort((a, b) => a.createdAt - b.createdAt);
+    for (const bot of bots.slice(limit)) {
+      bot.status = 'paused';
+      this.broker.cancelAll(`u:${user.id}:bot:${bot.id}`);
+      bot.lastPnl = this.broker.bookPnl(`u:${user.id}:bot:${bot.id}`).pnl;
+    }
+  }
+
+  private async verifyStripeSignature(payload: string, header: string, secret: string): Promise<boolean> {
+    const parts = header.split(',').reduce<Record<string, string[]>>((acc, part) => {
+      const [key, value] = part.trim().split('=', 2);
+      if (!key || !value) return acc;
+      (acc[key] ??= []).push(value);
+      return acc;
+    }, {});
+    const timestamp = parts.t?.[0];
+    const signatures = parts.v1 ?? [];
+    if (!timestamp || !signatures.length) return false;
+    const age = Math.abs(Date.now() / 1000 - Number(timestamp));
+    if (!Number.isFinite(age) || age > 300) return false;
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const digest = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${timestamp}.${payload}`));
+    const expected = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    let match = false;
+    for (const signature of signatures) {
+      if (signature.length !== expected.length) continue;
+      let diff = 0;
+      for (let i = 0; i < expected.length; i++) diff |= signature.charCodeAt(i) ^ expected.charCodeAt(i);
+      if (diff === 0) match = true;
+    }
+    return match;
+  }
+
+  // -------------------------------------------------------------------------
+  // Community chat
+  // -------------------------------------------------------------------------
+
+  private chatSnapshot(): { messages: ChatMessage[]; online: number } {
+    return {
+      messages: this.platform.chat.slice(-100),
+      online: this.chatSockets.size,
+    };
+  }
+
+  private broadcastChat(payload: unknown): void {
+    const body = JSON.stringify(payload);
+    for (const client of [...this.chatSockets]) {
+      try {
+        if (client.socket.readyState !== 1) {
+          this.chatSockets.delete(client);
+          continue;
+        }
+        client.socket.send(body);
+      } catch {
+        this.chatSockets.delete(client);
+      }
+    }
+  }
+
+  private postChat(user: UserRecord, raw: string): ChatMessage | string {
+    const now = Date.now();
+    const last = this.chatRate.get(user.id) ?? 0;
+    if (now - last < 1_500) return 'Slow down a little — one message every 1.5 seconds.';
+    const body = raw.trim().slice(0, 500);
+    if (body.length < 2) return 'Message is too short.';
+    this.chatRate.set(user.id, now);
+    const message: ChatMessage = {
+      id: `chat_${crypto.randomUUID().slice(0, 10)}`,
+      userId: user.id,
+      username: user.username,
+      plan: user.plan,
+      body,
+      ts: now,
+    };
+    this.platform.chat.push(message);
+    if (this.platform.chat.length > 100) this.platform.chat.shift();
+    this.broadcastChat({ type: 'chat_message', message, online: this.chatSockets.size });
+    void this.persist();
+    return message;
   }
 
   // -------------------------------------------------------------------------
@@ -961,6 +1277,35 @@ export class ArenaEngine extends DurableObject<Env> {
         return this.json({ ok: true }, 200, { 'set-cookie': clearSessionCookie() });
       }
 
+      /* ------------------------------------------------------------ billing */
+      if (url.pathname === '/api/billing/webhook' && request.method === 'POST') {
+        return this.handleStripeWebhook(request);
+      }
+      if (url.pathname === '/api/billing' && request.method === 'GET') {
+        if (!user) return this.json({ error: 'Sign in to view billing.' }, 401);
+        return this.json(this.billingStatus(user));
+      }
+      if (url.pathname === '/api/billing/checkout' && request.method === 'POST') {
+        if (!user) return this.json({ error: 'Sign in to start a subscription.' }, 401);
+        return this.createCheckout(request, user);
+      }
+      if (url.pathname === '/api/billing/portal' && request.method === 'POST') {
+        if (!user) return this.json({ error: 'Sign in to manage billing.' }, 401);
+        return this.createPortal(request, user);
+      }
+
+      /* --------------------------------------------------------------- chat */
+      if (url.pathname === '/api/chat' && request.method === 'GET') {
+        return this.json(this.chatSnapshot());
+      }
+      if (url.pathname === '/api/chat' && request.method === 'POST') {
+        if (!user) return this.json({ error: 'Sign in to join the chat.' }, 401);
+        const body = await this.readJson<{ body?: string }>(request);
+        const result = this.postChat(user, safeString(body?.body, 500));
+        if (typeof result === 'string') return this.json({ error: result }, 400);
+        return this.json({ ok: true, message: result, online: this.chatSockets.size });
+      }
+
       /* --------------------------------------------------------- public data */
       if (url.pathname === '/api/platform' && request.method === 'GET') {
         return this.json(this.platformOverview(viewerId));
@@ -997,7 +1342,7 @@ export class ArenaEngine extends DurableObject<Env> {
         if (!user) return this.json({ error: 'Sign in to register.' }, 401);
         const tournament = TOURNAMENTS.find((entry) => entry.id === registerTournament[1]);
         if (!tournament) return this.json({ error: 'Tournament not found' }, 404);
-        if (tournament.status === 'completed') return this.json({ error: 'This tournament is closed.' }, 400);
+        if (this.tournamentStatus(tournament) === 'completed') return this.json({ error: 'This tournament is closed.' }, 400);
         const regs = (this.platform.tournamentRegs[tournament.id] ??= []);
         if (!regs.includes(user.id)) regs.push(user.id);
         void this.persist();
@@ -1503,34 +1848,68 @@ export class ArenaEngine extends DurableObject<Env> {
   }
 
   private handleWebSocket(request: Request): Response {
+    const url = new URL(request.url);
+    const chatMode = url.searchParams.get('chat') === '1';
     const user = this.auth(request);
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
     server.accept();
     const entry: SocketClient = { socket: server, userId: user?.id ?? null };
-    this.sockets.add(entry);
-    this.startLoop();
     this.lastActivity = Date.now();
 
-    try {
-      server.send(JSON.stringify(this.snapshotFor(entry.userId)));
-    } catch {
-      // The client will request a snapshot on reconnect.
+    if (chatMode) {
+      this.chatSockets.add(entry);
+      this.broadcastChat({ type: 'chat_presence', online: this.chatSockets.size });
+      try {
+        server.send(JSON.stringify({ type: 'chat_snapshot', ...this.chatSnapshot() }));
+      } catch {
+        // The client can request a snapshot again.
+      }
+    } else {
+      this.sockets.add(entry);
+      this.startLoop();
+      try {
+        server.send(JSON.stringify(this.snapshotFor(entry.userId)));
+      } catch {
+        // The client will request a snapshot on reconnect.
+      }
     }
 
     server.addEventListener('message', (event: MessageEvent) => {
       this.lastActivity = Date.now();
       try {
-        const message = JSON.parse(String(event.data)) as { type?: string };
-        if (message.type === 'ping') server.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
+        const message = JSON.parse(String(event.data)) as { type?: string; body?: string };
+        if (message.type === 'ping') {
+          server.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
+          return;
+        }
+        if (chatMode) {
+          if (message.type === 'chat') {
+            const userRecord = this.userById(entry.userId);
+            if (!userRecord) {
+              server.send(JSON.stringify({ type: 'chat_error', error: 'Sign in to post in the lounge.' }));
+              return;
+            }
+            const result = this.postChat(userRecord, String(message.body ?? '').slice(0, 500));
+            if (typeof result === 'string') {
+              server.send(JSON.stringify({ type: 'chat_error', error: result }));
+            }
+          }
+          return;
+        }
         if (message.type === 'snapshot') server.send(JSON.stringify(this.snapshotFor(entry.userId)));
       } catch {
         // Ignore malformed client messages.
       }
     });
     const cleanup = () => {
-      this.sockets.delete(entry);
+      if (chatMode) {
+        this.chatSockets.delete(entry);
+        this.broadcastChat({ type: 'chat_presence', online: this.chatSockets.size });
+      } else {
+        this.sockets.delete(entry);
+      }
       this.lastActivity = Date.now();
     };
     server.addEventListener('close', cleanup);

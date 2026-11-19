@@ -9,7 +9,7 @@ const SECTIONS = [
   ['scoring', '5. Scoring & rankings'],
   ['seasons', '6. Seasons & divisions'],
   ['tournaments', '7. Tournaments'],
-  ['community', '8. Forum & newsletter'],
+  ['community', '8. Forum, lounge & newsletter'],
   ['conduct', '9. Prohibited conduct'],
   ['sanctions', '10. Sanctions & appeals'],
   ['privacy', '11. Data, privacy & disclaimer'],
@@ -135,12 +135,13 @@ export default function RulesPage() {
             </section>
 
             <section id="community">
-              <h2>8. Forum &amp; newsletter</h2>
+              <h2>8. Forum, live lounge &amp; newsletter</h2>
               <ol>
                 <li>Forum posts must be relevant, civil and free of spam. Disagreement is fine; harassment, hate speech, doxxing and threats are not.</li>
                 <li>Do not post another person's private code, credentials, personal data or paid content without permission.</li>
                 <li>Do not present paper results as financial advice or solicit investment. No referrals, pump groups or paid signal promotions.</li>
                 <li>Bug reports should include reproduction steps and the affected bot or account where possible. Do not exploit a bug for competitive gain; report it.</li>
+                <li>The live lounge is public and moderated. Sign in to post; messages are limited to 500 characters and a short rate limit. No spam, solicitations or personal data.</li>
                 <li>Newsletter subscriptions are email-only. We do not sell subscriber lists. Unsubscribe links are included in every issue.</li>
                 <li>Staff may remove posts, lock threads or restrict accounts to protect the community. Moderation decisions can be appealed.</li>
               </ol>

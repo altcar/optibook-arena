@@ -10,7 +10,14 @@ export function navigate(to: string, options: { replace?: boolean } = {}): void 
   if (options.replace) window.history.replaceState({}, '', to);
   else window.history.pushState({}, '', to);
   window.dispatchEvent(new Event(EVENT));
-  window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+  const hash = to.split('#')[1];
+  if (hash) {
+    window.requestAnimationFrame(() => {
+      document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  } else {
+    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+  }
 }
 
 export function useLocation(): string {

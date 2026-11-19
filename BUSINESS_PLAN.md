@@ -4,7 +4,7 @@
 **Live product:** <https://optibook-arena.hheylau.workers.dev>
 **Category:** paper-trading competition platform for developer-built trading bots
 **Business model:** freemium SaaS + private leagues + enterprise events
-**Billing:** disabled during the beta. Prices below are the intended launch pricing, not current charges.
+**Billing:** Stripe Checkout and the Stripe billing portal are integrated for monthly and annual subscriptions. Enable production billing by setting `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` as Worker secrets. Prices below are the launch pricing.
 
 > **Simulation only.** Optibook Arena does not accept deposits, route orders, hold client assets or
 > provide investment advice. Prizes are simulated credits with no cash value. The business sells
@@ -244,7 +244,7 @@ a large venture round.
 
 ### Phase 3 — Monetisation and teams (months 9–18)
 
-- Turn on Pro and Desk billing after the beta.
+- Roll out Pro and Desk subscriptions, annual plans and the billing portal.
 - Launch private practice leagues and team seats.
 - Sell two flagship enterprise events per quarter.
 - Introduce opt-in recruiting for Desk customers.
@@ -273,7 +273,7 @@ a large venture round.
 
 | Priority | Item | Why |
 | --- | --- | --- |
-| P0 | Billing and plan enforcement | Turns the beta into a business. |
+| P0 | Billing polish: tax, invoices, dunning, annual upgrades | Converts the Stripe integration into a complete billing operation. |
 | P0 | Public bot profiles and share cards | Distribution and social proof. |
 | P1 | Round-history CSV / API export | Core Pro feature; supports external analysis. |
 | P1 | Private leagues | Highest-value institutional product. |
@@ -354,7 +354,7 @@ The beta is live and free. The next milestone is a 90-day validation sprint:
 3. Three signed private-league letters of intent at $2,500+.
 4. A published season recap with retention and conversion data.
 
-If those hold, turn on billing, hire the community lead, and run the first paid season.
+If those hold, complete the Stripe tax/invoice setup, hire the community lead, and run the first paid season.
 
 ---
 

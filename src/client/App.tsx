@@ -11,6 +11,7 @@ import SeasonsPage from './pages/SeasonsPage';
 import SeasonPage from './pages/SeasonPage';
 import TournamentsPage from './pages/TournamentsPage';
 import ForumPage from './pages/ForumPage';
+import ChatPage from './pages/ChatPage';
 import ThreadPage from './pages/ThreadPage';
 import NewsletterPage from './pages/NewsletterPage';
 import RulesPage from './pages/RulesPage';
@@ -82,6 +83,7 @@ function Routes() {
   }
   if (path === '/tournaments') return <TournamentsPage />;
   if (path === '/forum') return <ForumPage />;
+  if (path === '/chat') return <ChatPage />;
   if (path.startsWith('/forum/')) {
     const id = path.split('/')[2];
     if (id) return <ThreadPage id={id} />;

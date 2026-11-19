@@ -118,7 +118,7 @@ file is the repository copy of record.
 5. Collusion between accounts, intentional wash trading or sharing a bot during a tournament is
    prohibited.
 
-## 8. Forum and newsletter
+## 8. Forum, live lounge and newsletter
 
 1. Forum posts must be relevant, civil and free of spam. Disagreement is fine; harassment, hate
    speech, doxxing and threats are not.
@@ -128,10 +128,12 @@ file is the repository copy of record.
    or paid signal promotions.
 4. Bug reports should include reproduction steps and the affected bot or account where possible. Do
    not exploit a bug for competitive gain; report it.
-5. Newsletter subscriptions are email-only. We do not sell subscriber lists. Unsubscribe links are
+5. The live lounge is public and moderated. Sign in to post. Messages are limited to 500 characters
+   and a short rate limit; do not use the lounge for spam, solicitations or personal data.
+6. Newsletter subscriptions are email-only. We do not sell subscriber lists. Unsubscribe links are
    included in every issue.
-6. Staff may remove posts, lock threads or restrict accounts to protect the community. Moderation
-   decisions can be appealed.
+7. Staff may remove posts, lock threads, delete lounge messages or restrict accounts to protect the
+   community. Moderation decisions can be appealed.
 
 ## 9. Prohibited conduct
 

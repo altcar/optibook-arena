@@ -73,15 +73,20 @@ export default function ForumPage() {
           title="The build room."
           lead="Strategy notes, upload questions, bug reports and rule proposals. Keep it useful, keep it civil."
           actions={
-            user ? (
-              <button className="btn btn-primary btn-sm" onClick={() => setComposer((value) => !value)}>
-                <Icon name="plus" size={13} /> New thread
-              </button>
-            ) : (
-              <Link to="/login?next=/forum" className="btn btn-primary btn-sm">
-                Sign in to post
+            <>
+              <Link to="/chat" className="btn btn-outline btn-sm">
+                Live lounge
               </Link>
-            )
+              {user ? (
+                <button className="btn btn-primary btn-sm" onClick={() => setComposer((value) => !value)}>
+                  <Icon name="plus" size={13} /> New thread
+                </button>
+              ) : (
+                <Link to="/login?next=/forum" className="btn btn-primary btn-sm">
+                  Sign in to post
+                </Link>
+              )}
+            </>
           }
         />
 

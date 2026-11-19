@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { STOCK_PAIRS, STOCK_SYMBOLS, type BotInfo, type StockSymbol } from '../../shared/types';
 import { api, errorMessage, formatUsd } from '../api';
 import { useAuth } from '../auth';
@@ -59,10 +59,19 @@ function BotMiniCard({ bot, onChange }: { bot: BotInfo; onChange: () => void }) 
 }
 
 export default function DashboardPage() {
-  const { user, logout } = useAuth();
-  const { state, status, latency, toasts, dismissToast, actions } = useArena();
+  const { user, logout, refresh } = useAuth();
+  const { state, status, latency, toasts, toast, dismissToast, actions } = useArena();
   const [activeSymbol, setActiveSymbol] = useState<StockSymbol>('NVDA');
   const [seed, setSeed] = useState<TicketSeed | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('billing') === 'success') {
+      toast('Subscription active. Welcome to the paid arena — your plan will update as Stripe confirms.', 'success');
+      void refresh();
+      window.history.replaceState({}, '', '/dashboard');
+    }
+  }, [refresh, toast]);
 
   if (!state) {
     return (
@@ -120,6 +129,7 @@ export default function DashboardPage() {
             <div>
               <span className="account-kicker">
                 {account?.division ?? 'open'} division · {account?.plan ?? 'free'} plan
+                {account?.subscriptionStatus ? ` · ${account.subscriptionStatus}` : ''}
               </span>
               <h2>{user?.username}</h2>
             </div>
@@ -151,8 +161,8 @@ export default function DashboardPage() {
             <Link to="/bots" className="btn btn-primary btn-sm">
               <Icon name="plus" size={13} /> Deploy a bot
             </Link>
-            <Link to="/leaderboard" className="btn btn-outline btn-sm">
-              Leaderboard
+            <Link to="/pricing#billing" className="btn btn-outline btn-sm">
+              Billing
             </Link>
             <button
               className="btn btn-ghost btn-sm"

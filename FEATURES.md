@@ -40,6 +40,8 @@ The platform layer adds:
 - **leaderboard** — Open/Raised divisions, season filter, win rate, Sharpe, trend;
 - **seasons and tournaments** — rule sets, prize pools, registration;
 - **forum, newsletter, rules and pricing** — community and business surfaces;
+- **live lounge chat** — persisted WebSocket chat with guest read and authenticated posting;
+- **Stripe subscriptions** — Checkout, webhook-driven plan updates and a billing portal;
 - **Playwright end-to-end tests** covering every feature above.
 
 The central caveat is simple: the app owns the venue **and** the trading desk. That gives it a
@@ -88,6 +90,9 @@ real venue operator that traded on it would be in serious legal and ethical terr
 | 34 | Forum | `platform.threads`, `/api/forum` | Real community moderation needs policy, escalation and legal process |
 | 35 | Newsletter | `/api/newsletter`, `NEWSLETTER_ISSUES` | Real marketing needs consent, unsubscribe and privacy compliance |
 | 36 | Rules / pricing pages + docs | `RULES.md`, `BOT_UPLOAD.md`, `BUSINESS_PLAN.md` | Real terms require counsel and jurisdiction-specific review |
+| 37 | Stripe subscriptions | `/api/billing/*`, `PricingPage.tsx` | Real billing needs tax, invoices, dunning, refunds and jurisdiction review |
+| 38 | Billing portal + plan webhooks | Stripe customer portal, `handleStripeWebhook()` | Real subscription state needs reconciliation, entitlements and audit |
+| 39 | Live lounge chat | `useChat.ts`, `/ws?chat=1`, `platform.chat` | Real chat needs moderation, abuse tooling, retention and privacy controls |
 
 ### 2.1 Competition platform implementation
 
@@ -110,8 +115,12 @@ uploads, scoring, seasons, tournaments, community and a commercial surface.
   round delta was positive; win rate and Sharpe are derived from that series.
 - Seasons, tournaments, seeded benchmark bots, forum threads and newsletter issues are seeded in
   `platform.ts` so the public site is populated before real users arrive.
-- The client is a small history router with public pages, auth-gated dashboard/bot console and a
-  shared design system layered over the original terminal CSS.
+- Stripe Checkout sessions are created from the Durable Object with inline recurring prices; the
+  webhook verifies `Stripe-Signature` with HMAC-SHA256 before applying plan/division changes.
+- The lounge adds a second WebSocket channel (`/ws?chat=1`) with its own presence set, 1.5-second
+  rate limit, 500-character limit and a persisted last-100-message window.
+- The client is a small history router with grouped navigation, public pages, auth-gated
+  dashboard/bot console/lounge and a shared design system layered over the original terminal CSS.
 
 **Real-market status:** the isolation is application-level, not custodial. Real multi-tenant trading
 requires segregated accounts, regulatory permissions, KYC/AML, order audit trails, entitlements,
@@ -709,6 +718,10 @@ latency indicators.
 | `GET`/`POST` | `/api/bots`, `/api/bots/validate`, `/api/bots/:id/status` | Bot lifecycle (auth) |
 | `GET` | `/api/platform`, `/api/leaderboard`, `/api/seasons`, `/api/season/:id`, `/api/tournaments`, `/api/forum`, `/api/newsletter` | Public platform data |
 | `POST` | `/api/tournaments/:id/register`, `/api/forum`, `/api/forum/:id/reply`, `/api/newsletter` | Platform actions |
+| `GET`/`POST` | `/api/chat`, `/ws?chat=1` | Lounge history and real-time chat |
+| `GET` | `/api/billing` | Plan, subscription status and Stripe configuration |
+| `POST` | `/api/billing/checkout`, `/api/billing/portal` | Stripe Checkout and billing portal |
+| `POST` | `/api/billing/webhook` | Signature-verified Stripe webhook |
 
 **Real-market gap:** real APIs require stronger authorization, entitlements, rate limits,
 idempotency, audit logs, and reconciliation. Our mutating endpoints require a session cookie and scope

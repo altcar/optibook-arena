@@ -4,13 +4,45 @@ import { useAuth } from './auth';
 import { Link, navigate, useLocation } from './router';
 import { Icon, Logo } from './components/Icons';
 
-const NAV = [
-  { to: '/live', label: 'Live' },
-  { to: '/leaderboard', label: 'Leaderboard' },
-  { to: '/seasons', label: 'Seasons' },
-  { to: '/tournaments', label: 'Tournaments' },
-  { to: '/forum', label: 'Forum' },
-  { to: '/pricing', label: 'Pricing' },
+interface NavItem {
+  to: string;
+  label: string;
+  desc?: string;
+}
+
+const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+  {
+    label: 'Compete',
+    items: [
+      { to: '/live', label: 'Live arena', desc: 'Watch the synthetic venue stream' },
+      { to: '/leaderboard', label: 'Leaderboard', desc: 'P&L, win rate and Sharpe' },
+      { to: '/tournaments', label: 'Tournaments', desc: 'Short-format competitions' },
+    ],
+  },
+  {
+    label: 'Seasons',
+    items: [
+      { to: '/seasons', label: 'Current season', desc: 'Season 15 · Basis Run' },
+      { to: '/season/15', label: 'Season hub', desc: 'Rules, standings and payouts' },
+      { to: '/rules#scoring', label: 'Scoring', desc: 'How P&L, win rate and ties work' },
+    ],
+  },
+  {
+    label: 'Community',
+    items: [
+      { to: '/forum', label: 'Forum', desc: 'Strategy notes and bug reports' },
+      { to: '/chat', label: 'Live lounge', desc: 'Real-time chat with other traders' },
+      { to: '/newsletter', label: 'Newsletter', desc: 'The Basis Premium archive' },
+    ],
+  },
+  {
+    label: 'Docs',
+    items: [
+      { to: '/docs/bots', label: 'Bot upload spec', desc: 'JSON schema, triggers and actions' },
+      { to: '/stack', label: 'The Stack', desc: 'How the arena is built' },
+      { to: '/rules', label: 'Platform rules', desc: 'Eligibility, conduct and appeals' },
+    ],
+  },
 ];
 
 export function SiteNav() {
@@ -18,13 +50,30 @@ export function SiteNav() {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [group, setGroup] = useState<string | null>(null);
 
   useEffect(() => {
     setOpen(false);
     setMenu(false);
+    setGroup(null);
   }, [location]);
 
-  const isActive = (to: string) => location === to || (to !== '/' && location.startsWith(`${to}/`));
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setGroup(null);
+        setMenu(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const isActive = (to: string) => {
+    const base = to.split('#')[0];
+    return location === base || (base !== '/' && location.startsWith(`${base}/`));
+  };
+  const groupActive = (items: NavItem[]) => items.some((item) => isActive(item.to));
 
   return (
     <header className="site-nav">
@@ -37,16 +86,33 @@ export function SiteNav() {
         </Link>
 
         <nav className={`site-links ${open ? 'is-open' : ''}`} aria-label="Primary">
-          {NAV.map((item) => (
-            <Link key={item.to} to={item.to} className={isActive(item.to) ? 'active' : ''}>
-              {item.label}
-            </Link>
+          {NAV_GROUPS.map((navGroup) => (
+            <div
+              key={navGroup.label}
+              className={`nav-group ${group === navGroup.label ? 'open' : ''} ${
+                groupActive(navGroup.items) ? 'active' : ''
+              }`}
+            >
+              <button
+                className="nav-group-btn"
+                aria-expanded={group === navGroup.label}
+                onClick={() => setGroup((current) => (current === navGroup.label ? null : navGroup.label))}
+              >
+                {navGroup.label}
+                <Icon name="chevron" size={12} />
+              </button>
+              <div className="nav-dropdown">
+                {navGroup.items.map((item) => (
+                  <Link key={`${navGroup.label}-${item.to}-${item.label}`} to={item.to}>
+                    <strong>{item.label}</strong>
+                    {item.desc && <span>{item.desc}</span>}
+                  </Link>
+                ))}
+              </div>
+            </div>
           ))}
-          <Link to="/rules" className="nav-mobile-only">
-            Rules
-          </Link>
-          <Link to="/stack" className="nav-mobile-only">
-            Stack
+          <Link to="/pricing" className={`nav-pricing ${isActive('/pricing') ? 'active' : ''}`}>
+            Pricing
           </Link>
         </nav>
 
@@ -66,7 +132,8 @@ export function SiteNav() {
                 <div className="user-dropdown">
                   <Link to="/dashboard">Dashboard</Link>
                   <Link to="/bots">My bots</Link>
-                  <Link to="/dashboard#account">Account</Link>
+                  <Link to="/chat">Live lounge</Link>
+                  <Link to="/pricing#billing">Billing &amp; plan</Link>
                   <button
                     onClick={() => {
                       void logout().then(() => navigate('/'));
@@ -127,6 +194,7 @@ export function SiteFooter() {
           <div>
             <h4>Community</h4>
             <Link to="/forum">Forum</Link>
+            <Link to="/chat">Live lounge</Link>
             <Link to="/newsletter">Newsletter</Link>
             <Link to="/rules">Platform rules</Link>
             <Link to="/pricing">Pricing</Link>

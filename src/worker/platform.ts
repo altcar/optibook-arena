@@ -7,7 +7,9 @@ import {
   STRATEGY_META,
   type BotFamily,
   type BotRound,
+  type BillingInterval,
   type BotSpec,
+  type ChatMessage,
   type Division,
   type ForumPost,
   type ForumThread,
@@ -15,6 +17,7 @@ import {
   type Plan,
   type Season,
   type SessionUser,
+  type SubscriptionStatus,
   type Tournament,
 } from '../shared/types';
 
@@ -35,6 +38,11 @@ export interface UserRecord {
   newsletter: boolean;
   lastSeen: number;
   country: string;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  subscriptionStatus?: SubscriptionStatus;
+  billingInterval?: BillingInterval | null;
+  renewsAt?: number | null;
 }
 
 export interface BotRecord {
@@ -84,6 +92,8 @@ export interface PlatformState {
   newsletter: string[];
   tournamentRegs: Record<string, string[]>;
   equity: Record<string, number[]>;
+  chat: ChatMessage[];
+  billingEvents: string[];
   createdAt: number;
 }
 
@@ -127,35 +137,64 @@ export const POSITION_LIMIT = 100;
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 10, 18, 9, 0, 0); // 18 Nov 2026, 09:00 UTC
+const CURRENT_START = Date.UTC(2026, 10, 2); // Season 15 starts 2 Nov 2026
+const SEASON_CYCLE = 49 * DAY;
+const SEASON_LENGTH = 47 * DAY;
 
-export const SEASONS: Season[] = Array.from({ length: 15 }, (_, index) => {
+const SEASON_NAMES: Record<number, string> = {
+  1: 'Genesis',
+  2: 'Open Book',
+  3: 'First Light',
+  4: 'Basis School',
+  5: 'Flow State',
+  6: "Maker's Mark",
+  7: 'Pair Trade',
+  8: 'Headline Hunt',
+  9: 'Volatility Regime',
+  10: 'Spread Season',
+  11: 'Liquidity Games',
+  12: 'Open Circuit',
+  13: 'Delta Neutral',
+  14: 'News Shock',
+  15: 'Basis Run',
+  16: 'Maker Rebate',
+};
+
+const SEASON_TAGLINES: Record<number, string> = {
+  14: 'Headline-driven volatility with a tighter inventory cap.',
+  13: 'Delta-neutral scoring and a 10 bps arbitrage hurdle.',
+  15: 'The flagship basis season. Six families, five pairs, one leaderboard.',
+  16: 'A maker-rebate experiment with a tighter taker fee.',
+};
+
+export const SEASONS: Season[] = Array.from({ length: 16 }, (_, index) => {
   const id = index + 1;
-  const live = id === 15;
   const upcoming = id === 16;
-  const start = live ? Date.UTC(2026, 10, 2) : Date.UTC(2026, 8, 14) + index * 49 * DAY;
-  const end = live ? Date.UTC(2026, 11, 18) : start + 47 * DAY;
+  const live = id === 15;
+  const start = upcoming
+    ? CURRENT_START + SEASON_CYCLE
+    : live
+      ? CURRENT_START
+      : CURRENT_START - (15 - id) * (SEASON_CYCLE - DAY);
+  const end = start + SEASON_LENGTH - 1;
+  const status: Season['status'] = upcoming ? 'upcoming' : live ? 'live' : 'past';
   return {
     id,
-    name: `Season ${id} · ${id === 15 ? 'Basis Run' : id === 14 ? 'News Shock' : id === 13 ? 'Delta Neutral' : 'Open Circuit'}`,
-    tagline:
-      id === 15
-        ? 'The flagship basis season. Six families, five pairs, one leaderboard.'
-        : id === 14
-          ? 'Headline-driven volatility with a tighter inventory cap.'
-          : id === 13
-            ? 'Delta-neutral scoring and a 10 bps arbitrage hurdle.'
-            : 'A standard six-family arena season.',
-    status: live ? 'live' : upcoming ? 'upcoming' : 'past',
+    name: `Season ${id} · ${SEASON_NAMES[id] ?? 'Open Circuit'}`,
+    tagline: SEASON_TAGLINES[id] ?? 'A standard six-family arena season.',
+    status,
     startsAt: start,
     endsAt: end,
-    prizePool: live ? 25_000 : Math.max(2_500, 18_000 - (15 - id) * 900),
-    entry: id === 15 ? 'Free · Open and Raised divisions' : 'Free entry',
+    prizePool: live ? 25_000 : upcoming ? 30_000 : Math.max(2_500, 18_000 - (15 - id) * 900),
+    entry: live ? 'Free · Open and Raised divisions' : upcoming ? 'Free · both divisions' : 'Free entry',
     description:
-      id === 15
+      live
         ? 'Season 15 is a 47-day paper-trading competition. Bots trade a synthetic dual-market venue with five stocks and five dual listings. Scoring is net P&L after simulated fees, with win rate as the tie-breaker.'
-        : 'A completed arena season. Results are archived for transparency and historical rating.',
+        : upcoming
+          ? 'Season 16 introduces a maker rebate funded by a taker fee, plus a 60-share inventory cap. Custom rule bots and all six families are eligible.'
+          : 'A completed arena season. Results are archived for transparency and historical rating.',
     rules:
-      id === 15
+      live
         ? [
             'Starting paper balance: $100,000 per account.',
             'Max net position: 100 shares per instrument (aggregated across your manual book, strategies and bots).',
@@ -164,19 +203,26 @@ export const SEASONS: Season[] = Array.from({ length: 15 }, (_, index) => {
             'Scoring: net P&L after 1 bp simulated fee; tie-break on win rate, then Sharpe.',
             'Minimum 20 closed rounds to qualify for the Raised division payout.',
           ]
-        : [
-            'Archived season. Scoring used the rule set published at the time.',
-            'Results remain viewable for rating history.',
-          ],
+        : upcoming
+          ? [
+              'Starting paper balance: $100,000 per account.',
+              'Maker fills earn a 0.5 bp rebate; taker fills pay 2 bps.',
+              'Max net position: 60 shares per instrument.',
+              'Custom rule bots and all six families are eligible.',
+            ]
+          : [
+              'Archived season. Scoring used the rule set published at the time.',
+              'Results remain viewable for rating history.',
+            ],
     allowedFamilies: ['dual-mm', 'hedge', 'dual-arb', 'sentiment-mm', 'momentum-mm', 'adaptive-mm', 'custom'],
     startingCash: STARTING_CASH,
-    positionLimit: POSITION_LIMIT,
-    feeBps: 1,
+    positionLimit: live ? POSITION_LIMIT : upcoming ? 60 : POSITION_LIMIT,
+    feeBps: live ? 1 : upcoming ? 2 : 1,
     divisions: ['open', 'raised'],
   };
 });
 
-export const CURRENT_SEASON = SEASONS.find((s) => s.status === 'live') ?? SEASONS[14];
+export const CURRENT_SEASON = SEASONS.find((season) => season.id === 15) ?? SEASONS[14];
 
 export const TOURNAMENTS: Tournament[] = [
   {
@@ -185,15 +231,15 @@ export const TOURNAMENTS: Tournament[] = [
     description: 'A 72-hour sprint. Highest net P&L on the five dual pairs wins. Inventory resets every 24 hours.',
     format: '72h · all families · P&L sprint',
     status: 'live',
-    startsAt: Date.UTC(2026, 10, 16, 12),
-    endsAt: Date.UTC(2026, 10, 19, 12),
+    startsAt: Date.UTC(2026, 10, 19, 12),
+    endsAt: Date.UTC(2026, 10, 21, 12),
     prize: 4_000,
     entry: 'Free · Raised division',
     participants: 186,
     capacity: 512,
     seasonId: 15,
     rules: [
-      'Register before the first reset (16 Nov 12:00 UTC).',
+      'Register before the first reset (19 Nov 12:00 UTC).',
       'Only Raised-division accounts are eligible for prizes.',
       'Positions reset to flat every 24 hours; P&L carries over.',
       'News events run at 3× frequency for the final six hours.',
@@ -605,6 +651,24 @@ export const NEWSLETTER_ISSUES: NewsletterIssue[] = [
   },
 ];
 
+export function seededChat(): ChatMessage[] {
+  return [
+    ['optibook', 'staff', 'Season 15 is live. Keep the books honest and report bugs in the forum.', 190, true],
+    ['queuelab', 'pro', 'Basis is wide this morning. Our maker is getting picked off on the dual leg.', 142, false],
+    ['tapewatcher', 'free', 'Anyone else seeing the 14:30 jump? The headline feed goes quiet right before it.', 96, false],
+    ['optibook', 'staff', 'The jump is part of the venue model, not a news event. Treat it as a liquidity shock.', 74, true],
+    ['deltaine', 'pro', 'Uploaded a custom basis rule with a 10 bps trigger. Validator caught a typo in my universe list — nice.', 41, false],
+    ['clockwork', 'free', 'First season. Running the adaptive template with default risk to get a baseline.', 18, false],
+  ].map(([username, plan, body, minutesAgo, staff], index) => ({
+    id: `chat_seed_${index + 1}`,
+    username: String(username),
+    plan: plan as Plan | 'staff',
+    body: String(body),
+    ts: T0 - Number(minutesAgo) * 60_000,
+    staff: Boolean(staff),
+  }));
+}
+
 export function seedPlatform(): PlatformState {
   return {
     version: 2,
@@ -615,6 +679,8 @@ export function seedPlatform(): PlatformState {
     newsletter: [],
     tournamentRegs: {},
     equity: {},
+    chat: seededChat(),
+    billingEvents: [],
     createdAt: Date.now(),
   };
 }
@@ -628,6 +694,9 @@ export function toSessionUser(user: UserRecord): SessionUser {
     division: user.division,
     createdAt: user.createdAt,
     startingCash: user.startingCash,
+    subscriptionStatus: user.subscriptionStatus ?? null,
+    billingInterval: user.billingInterval ?? null,
+    renewsAt: user.renewsAt ?? null,
   };
 }
 

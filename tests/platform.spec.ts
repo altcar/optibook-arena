@@ -87,6 +87,82 @@ test.describe('public site', () => {
   });
 });
 
+test.describe('navigation and chronology', () => {
+  test('groups the navbar and routes through Docs', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Docs' }).click();
+    await page.locator('.nav-dropdown').getByRole('link', { name: /Bot upload spec/ }).click();
+    await expect(page).toHaveURL(/\/docs\/bots/);
+    await expect(page.locator('h1')).toContainText('What to upload');
+    await page.getByRole('button', { name: 'Community' }).click();
+    await page.locator('.nav-dropdown').getByRole('link', { name: /Live lounge/ }).click();
+    await expect(page).toHaveURL(/\/chat/);
+  });
+
+  test('archives previous seasons before the live season', async ({ request }) => {
+    const response = await request.get('/api/seasons');
+    const data = (await response.json()) as { seasons: { id: number; status: string; startsAt: number; endsAt: number }[] };
+    const current = data.seasons.find((season) => season.status === 'live')!;
+    const past = data.seasons.filter((season) => season.status === 'past');
+    const upcoming = data.seasons.find((season) => season.status === 'upcoming')!;
+    expect(past.length).toBeGreaterThan(10);
+    expect(Math.max(...past.map((season) => season.endsAt))).toBeLessThan(current.startsAt);
+    expect(upcoming.startsAt).toBeGreaterThan(current.startsAt);
+    expect(data.seasons.map((season) => season.startsAt)).toEqual(
+      [...data.seasons].sort((a, b) => a.startsAt - b.startsAt).map((season) => season.startsAt),
+    );
+  });
+});
+
+test.describe('billing and chat', () => {
+  test('pricing page exposes real Stripe plans and requires auth', async ({ page, request }) => {
+    await page.goto('/pricing');
+    await expect(page.getByTestId('plan-pro')).toContainText('Start with Pro');
+    await expect(page.getByTestId('plan-desk')).toBeVisible();
+    await page.getByRole('tab', { name: /Annual/ }).click();
+    await expect(page.locator('.pricing-card').nth(1)).toContainText('$190');
+    const response = await request.post('/api/billing/checkout', { data: { plan: 'pro', interval: 'month' } });
+    expect(response.status()).toBe(401);
+  });
+
+  test('billing status is real and checkout is gated when Stripe is unset', async ({ page }) => {
+    await register(page, 'bill');
+    const statusResponse = await page.request.get('/api/billing');
+    expect(statusResponse.status()).toBe(200);
+    const status = (await statusResponse.json()) as {
+      configured: boolean;
+      plan: string;
+      division: string;
+      subscriptionStatus: string | null;
+    };
+    expect(status.plan).toBe('free');
+    expect(status.division).toBe('open');
+    expect(status.subscriptionStatus).toBeNull();
+    if (!status.configured) {
+      const checkout = await page.request.post('/api/billing/checkout', {
+        data: { plan: 'pro', interval: 'month' },
+      });
+      expect(checkout.status()).toBe(503);
+      const body = (await checkout.json()) as { code?: string };
+      expect(body.code).toBe('stripe_not_configured');
+    }
+    const webhook = await page.request.post('/api/billing/webhook', { data: { id: 'evt_test' } });
+    expect([400, 503]).toContain(webhook.status());
+  });
+
+  test('live chat shows messages and lets a signed-in trader post', async ({ page }) => {
+    const username = await register(page, 'chat');
+    await page.goto('/chat');
+    await expect(page.getByTestId('chat-message').first()).toBeVisible();
+    await expect(page.locator('.chat-online')).toContainText('online');
+    const message = `Playwright hello ${stamp()}`;
+    await page.getByTestId('chat-input').fill(message);
+    await page.getByRole('button', { name: /Send/ }).click();
+    await expect(page.getByTestId('chat-messages')).toContainText(message);
+    await expect(page.getByTestId('chat-messages')).toContainText(username);
+  });
+});
+
 test.describe('account and trading', () => {
   test('registers, trades, and shows an isolated position', async ({ page }) => {
     const username = await register(page);
@@ -249,10 +325,10 @@ test.describe('community and competition', () => {
   test('registers for a tournament', async ({ page }) => {
     await register(page, 'tour');
     await page.goto('/tournaments');
-    const live = page.locator('.tournament-card.live').first();
-    await expect(live).toContainText('Basis Blitz');
-    await live.getByRole('button', { name: 'Register for this event' }).click();
-    await expect(live).toContainText('Registered');
+    const event = page.locator('.tournament-card.live, .tournament-card.upcoming').first();
+    await expect(event).toBeVisible();
+    await event.getByRole('button', { name: 'Register for this event' }).click();
+    await expect(event).toContainText('Registered');
   });
 
   test('creates a forum thread and replies', async ({ page }) => {

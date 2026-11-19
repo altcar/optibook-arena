@@ -1,0 +1,6 @@
+# Copy to .dev.vars for local Stripe testing. Never commit .dev.vars.
+STRIPE_SECRET_KEY=sk_test_replace_me
+STRIPE_WEBHOOK_SECRET=whsec_replace_me
+APP_URL=http://127.0.0.1:8787
+# Optional: a Stripe billing portal configuration id.
+# STRIPE_PORTAL_CONFIGURATION_ID=bpc_replace_me

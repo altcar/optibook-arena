@@ -281,6 +281,16 @@ export function instrumentName(id: string): string {
 
 export type Plan = 'free' | 'pro' | 'desk';
 export type Division = 'open' | 'raised';
+export type BillingInterval = 'month' | 'year';
+export type SubscriptionStatus =
+  | 'active'
+  | 'trialing'
+  | 'past_due'
+  | 'canceled'
+  | 'unpaid'
+  | 'incomplete'
+  | 'incomplete_expired'
+  | null;
 export type BotStatus = 'active' | 'paused' | 'draft';
 export type BotFamily =
   | 'dual-mm'
@@ -299,6 +309,9 @@ export interface SessionUser {
   division: Division;
   createdAt: number;
   startingCash: number;
+  subscriptionStatus: SubscriptionStatus;
+  billingInterval: BillingInterval | null;
+  renewsAt: number | null;
 }
 
 export interface AccountSummary {
@@ -318,6 +331,10 @@ export interface AccountSummary {
   bots: number;
   activeBots: number;
   rank: number | null;
+  subscriptionStatus: SubscriptionStatus;
+  billingInterval: BillingInterval | null;
+  renewsAt: number | null;
+  billingConfigured: boolean;
 }
 
 export interface BotRisk {
@@ -495,6 +512,40 @@ export interface ForumPost {
 
 export interface ForumThread extends ForumThreadSummary {
   posts: ForumPost[];
+}
+
+export interface ChatMessage {
+  id: string;
+  userId?: string;
+  username: string;
+  plan: Plan | 'staff';
+  body: string;
+  ts: number;
+  staff?: boolean;
+}
+
+export interface ChatSnapshot {
+  type: 'chat_snapshot';
+  messages: ChatMessage[];
+  online: number;
+}
+
+export interface ChatEvent {
+  type: 'chat_message' | 'chat_presence' | 'chat_error';
+  message?: ChatMessage;
+  online?: number;
+  error?: string;
+}
+
+export interface BillingStatus {
+  configured: boolean;
+  plan: Plan;
+  division: Division;
+  subscriptionStatus: SubscriptionStatus;
+  billingInterval: BillingInterval | null;
+  renewsAt: number | null;
+  customer: boolean;
+  portalAvailable: boolean;
 }
 
 export interface NewsletterIssue {

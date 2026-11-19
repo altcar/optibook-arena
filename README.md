@@ -37,8 +37,12 @@ accounts with login.
   sanctions and appeals.
 - **Forum** — categories, pinned threads, replies, staff badges and moderation rules.
 - **Newsletter** — subscribe/unsubscribe-style signup, subscriber count and a seeded issue archive.
-- **Pricing** — `/pricing` plus [`BUSINESS_PLAN.md`](BUSINESS_PLAN.md) with plans, projections,
-  unit economics and GTM.
+- **Live lounge** — a real-time WebSocket chat on `/chat`, persisted in the Durable Object, with
+  read-only access for guests and authenticated posting.
+- **Pricing & Stripe** — `/pricing` with monthly/annual plans, Stripe Checkout, webhook-driven plan
+  updates, customer billing portal and plan/division enforcement.
+- **Business plan** — [`BUSINESS_PLAN.md`](BUSINESS_PLAN.md) with plans, projections, unit economics
+  and GTM.
 
 ### Market and terminal
 
@@ -176,6 +180,39 @@ The suite starts `wrangler dev` automatically if no server is running on port 87
 node scripts/smoke.mjs http://127.0.0.1:8787
 ```
 
+### Stripe setup (real subscriptions)
+
+Checkout uses Stripe-hosted Checkout and the Stripe billing portal. No card data touches the Worker.
+Set two secrets in production:
+
+```bash
+npx wrangler secret put STRIPE_SECRET_KEY
+npx wrangler secret put STRIPE_WEBHOOK_SECRET
+```
+
+Then add a Stripe webhook endpoint:
+
+```
+https://optibook-arena.hheylau.workers.dev/api/billing/webhook
+```
+
+Subscribe it to:
+
+- `checkout.session.completed`
+- `customer.subscription.created`
+- `customer.subscription.updated`
+- `customer.subscription.deleted`
+- `invoice.payment_failed`
+
+Enable the **customer billing portal** in the Stripe dashboard so the “Manage billing” button works.
+Prices are created inline by Checkout, so no pre-created Price IDs are required.
+
+For local testing, copy `.dev.vars.example` to `.dev.vars` and fill in test-mode keys. Forward Stripe
+webhooks to `http://127.0.0.1:8787/api/billing/webhook` with the Stripe CLI.
+
+If the secrets are absent, the pricing page remains visible but checkout and the portal return a
+clear `503 stripe_not_configured` error. The rest of the platform stays fully functional.
+
 ---
 
 ## Deploy to workers.dev
@@ -253,6 +290,12 @@ Errors are JSON `{ "error": string }`.
 | `GET` | `/api/forum/:id` | Thread with posts. |
 | `POST` | `/api/forum/:id/reply` | Reply. |
 | `GET`/`POST` | `/api/newsletter` | Issues / subscribe. |
+| `GET`/`POST` | `/api/chat` | Recent lounge messages / post a message (auth). |
+| `WS` | `/ws?chat=1` | Real-time lounge chat and presence. |
+| `GET` | `/api/billing` | Plan, subscription status and Stripe configuration. |
+| `POST` | `/api/billing/checkout` | Create a Stripe Checkout session (auth). |
+| `POST` | `/api/billing/portal` | Create a Stripe billing portal session (auth). |
+| `POST` | `/api/billing/webhook` | Stripe webhook, signature verified. |
 
 ---
 
